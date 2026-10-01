@@ -1,0 +1,46 @@
+# Launchpad
+
+Dashboard locale per scoprire servizi e porte, riconoscere processi e container Docker e gestire le sessioni tmux.
+
+## Avvio
+
+Richiede Linux, Python 3.10+ e il comando `ss` (pacchetto `iproute2`). `tmux` è facoltativo.
+
+Per avviarlo manualmente: `python3 discovery.py`. L'interfaccia è disponibile su **http://localhost:7777**.
+
+Per avviarlo automaticamente come servizio utente `systemd`, clona il repository in `~/projects/launchpad` e installa l'unità:
+
+```bash
+systemctl --user link "$(pwd)/systemd/launchpad.service"
+systemctl --user enable --now launchpad.service
+```
+
+Se scegli un'altra cartella, aggiorna i percorsi nell'unità prima di installarla. Per controllare il servizio:
+
+```bash
+systemctl --user status launchpad.service
+systemctl --user restart launchpad.service
+journalctl --user -u launchpad.service -f
+```
+
+La configurazione è in `systemd/launchpad.service`. Per reinstallarla dopo uno spostamento del repository, aggiorna i percorsi nell'unità, collegala di nuovo ed esegui `systemctl --user daemon-reload && systemctl --user restart launchpad.service`. Se vuoi che il servizio utente resti attivo senza login, puoi abilitare il linger con `loginctl enable-linger "$USER"`.
+
+Un worker del servizio scansiona porte, protocolli e sessioni tmux ogni 8 secondi, anche senza browser aperto. Il frontend riceve lo stato iniziale e i soli cambiamenti tramite Server-Sent Events (`/api/events`); non interroga le API a intervalli. **Aggiorna** chiede al worker una scansione immediata. Le modifiche ai file Python del backend riavviano automaticamente il processo; le modifiche a HTML, JavaScript e CSS ricaricano la pagina aperta. Puoi usare `python3 discovery.py --port 9000` per cambiare porta nell'avvio manuale.
+
+Un indirizzo dedicato senza porta richiede un resolver e un proxy locali. Il proxy deve inoltrare le richieste con un `Host` locale accettato da Launchpad; l'interfaccia è pensata per l'accesso diretto a `localhost:7777`.
+
+Launchpad va eseguito sullo stesso host e con lo stesso utente dei server e delle sessioni tmux. Il servizio web ascolta solo su `127.0.0.1` per impostazione predefinita. Per ogni porta TCP in ascolto invia una breve richiesta `HEAD /` sull'interfaccia locale. Se la porta parla HTTP, legge la risposta della pagina principale: una pagina HTML valida è classificata come **Web app**, una risposta JSON o un endpoint senza pagina come **API**. Le pagine di documentazione Swagger, ReDoc e OpenAPI vengono classificate come API. Se la risposta non è leggibile, mostra **HTTP**; le altre porte sono **TCP**. La classificazione è indicativa e si basa sulla pagina principale, senza esplorare tutti i percorsi del servizio. Le web app compaiono per prime per impostazione predefinita; puoi filtrare per tipo, cercare e cambiare ordinamento.
+
+L'interfaccia accetta solo connessioni e intestazioni `Host` locali. I comandi tmux richiedono un token della sessione web e un'origine coerente con l'host. Non esporre il dashboard su Internet: mostra metadati dei processi locali e può eseguire gli script presenti in `~/tmux`.
+
+Per le pagine HTML mostra anche titolo e favicon, quando disponibili. Nei link, `127.0.0.1` viene presentato come `localhost`. I processi di altri utenti possono comparire senza nome o sessione, secondo i permessi del sistema.
+
+Per i servizi TCP non HTTP prova una breve richiesta di protocollo sulle porte note o quando il nome del processo o l'immagine Docker lo suggerisce. Riconosce PostgreSQL, MongoDB, Redis, MySQL/MariaDB e Memcached; SSH può essere identificato dal nome del processo. La card distingue tra **protocollo verificato** da una risposta, **riconosciuto dal processo**, **probabile dall'immagine Docker** e **probabile dalla porta**. La porta da sola è solo un indizio: un'applicazione può ascoltare su una porta normalmente usata da un database.
+
+Quando il socket Docker locale è accessibile, Launchpad legge le porte TCP pubblicate e il nome, l'immagine, il progetto Compose e l'ora di avvio dei container. Mostra anche la mappatura porta host → porta interna. Non invia comandi di modifica a Docker. Se più container pubblicano la stessa porta su IP differenti, ciascuno compare nella propria card. Per i processi normali, l'ora di avvio del PID arriva da `/proc`; il browser calcola da lì l'uptime e ne aggiorna il testo ogni minuto senza interrogare il server. Per i container senza PID del servizio visibile, l'uptime indicato è quello del container. Il PID riportato dal daemon Docker non viene mostrato perché può riferirsi a un namespace o host diverso.
+
+## Script tmux
+
+I tab **Servizi** e **Sessioni tmux** mostrano una sezione per volta. La sezione tmux trova automaticamente ogni `~/tmux/<progetto>.sh`. Associa `kill-<progetto>.sh` per l'arresto e `switch-<progetto>.sh` per le opzioni aggiuntive, senza un registro centrale. Lo script di avvio deve accettare `--detach` per poter essere lanciato dalla pagina. Lo stato viene letto dalle sessioni tmux effettive; i servizi nella pagina mostrano il collegamento al relativo launcher.
+
+Se la sessione ha un nome diverso dal file, aggiungi nelle prime 40 righe dello script `# launchpad-session: nome-sessione`. Per esporre opzioni nello script switch, aggiungi `# launchpad-actions: status opzione1 opzione2` e implementa quei nomi come primo argomento dello script. Le operazioni vengono eseguite solo dopo un clic nella pagina, con conferma per arresto e opzioni aggiuntive; lo stato e l'output compaiono nella card.

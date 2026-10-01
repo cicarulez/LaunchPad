@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f4f0e8">
+  <title>Launchpad · Atlante locale</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="page-frame" id="top">
+    <header class="masthead">
+      <div class="brand" aria-label="Launchpad">
+        <svg class="brand-symbol" viewBox="0 0 42 42" fill="none" aria-hidden="true">
+          <circle cx="21" cy="21" r="18" stroke="currentColor" stroke-width="2"/>
+          <circle cx="21" cy="21" r="6" fill="currentColor"/>
+          <path d="M21 0v11M42 21H31M21 42V31M0 21h11" stroke="currentColor" stroke-width="2"/>
+        </svg>
+        <span>launchpad<span class="brand-period">.</span></span>
+      </div>
+      <div class="masthead-meta"><span>LOCAL SERVICE ATLAS</span><span class="masthead-slash">/</span><span>EDIZIONE 01</span></div>
+      <div class="status-pill"><span class="status-light"></span> IN ASCOLTO <span id="updated">—</span></div>
+    </header>
+
+    <main>
+      <section class="hero" aria-label="Panoramica">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-index">01</span><span>LA TUA MACCHINA, IN CHIARO</span></div>
+          <h1>Le porte<br>aperte, <em>visibili.</em></h1>
+          <p>Un atlante vivo di ciò che gira sul tuo computer. Trova un progetto, riconosci il servizio, apri la strada giusta.</p>
+          <div class="hero-location"><span class="location-label">HOST LOCALE</span><strong>localhost</strong><span class="location-rule"></span><span>SCANSIONE OGNI 8 S · AGGIORNAMENTI LIVE</span></div>
+        </div>
+
+        <div class="signal-panel" aria-label="Distribuzione dei servizi rilevati">
+          <div class="panel-heading"><span>FIG. 01 <b>/</b> MAPPA DEI SEGNALI</span><span class="panel-live"><i></i> LIVE</span></div>
+          <div class="signal-field">
+            <svg class="signal-lines" viewBox="0 0 520 360" preserveAspectRatio="none" aria-hidden="true">
+              <path class="signal-line web-line" d="M156 180 H278 V74 H388"/>
+              <path class="signal-line api-line" d="M156 180 H316 V184 H410"/>
+              <path class="signal-line other-line" d="M156 180 H274 V289 H384"/>
+              <circle cx="278" cy="74" r="4" class="line-point web-point"/>
+              <circle cx="316" cy="184" r="4" class="line-point api-point"/>
+              <circle cx="274" cy="289" r="4" class="line-point other-point"/>
+            </svg>
+            <div class="signal-core"><div class="core-inside"><span>NODO LOCALE</span><strong id="map-total">00</strong><small>SERVIZI ATTIVI</small></div></div>
+            <button class="signal-node signal-node-web" type="button" data-map-filter="web" aria-label="Mostra web app"><span class="node-code">A / WEB</span><strong id="map-web">00</strong><span>web app</span></button>
+            <button class="signal-node signal-node-api" type="button" data-map-filter="api" aria-label="Mostra API"><span class="node-code">B / API</span><strong id="map-api">00</strong><span>API</span></button>
+            <button class="signal-node signal-node-other" type="button" data-map-filter="other" aria-label="Mostra altri servizi"><span class="node-code">C / ALTRO</span><strong id="map-other">00</strong><span>altri</span></button>
+          </div>
+          <div class="panel-foot"><span>DATI DALLE PORTE TCP IN ASCOLTO</span><span>127.0.0.1 <b>↗</b></span></div>
+        </div>
+      </section>
+
+      <div class="view-tabs" role="tablist" aria-label="Sezioni di Launchpad">
+        <button id="tab-services" type="button" role="tab" aria-controls="directory" aria-selected="true" tabindex="0">Servizi <span>↗</span></button>
+        <button id="tab-tmux" type="button" role="tab" aria-controls="tmux" aria-selected="false" tabindex="-1">Sessioni tmux <span>↗</span></button>
+      </div>
+
+      <section class="directory" id="directory" role="tabpanel" aria-labelledby="tab-services">
+        <div class="directory-head"><div><span class="section-kicker">02 / INDICE IN TEMPO REALE</span><h2 id="directory-title">Servizi rilevati<span class="title-period">.</span></h2></div><div class="directory-total"><strong id="count">—</strong><span>CONNESSIONI<br>ATTIVE</span></div></div>
+
+        <div class="controls">
+          <label class="search"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.75" cy="10.75" r="6.75" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input id="search" type="search" placeholder="Cerca per nome, progetto, sessione o porta" autocomplete="off" aria-label="Cerca servizi"></label>
+          <button id="refresh" type="button" title="Aggiorna ora"><span aria-hidden="true">↻</span> Aggiorna</button>
+        </div>
+        <div class="view-controls">
+          <div id="filters" class="filters" role="group" aria-label="Filtra per tipo">
+            <button type="button" data-filter="all" aria-pressed="true">Tutti <span class="filter-count">0</span></button>
+            <button type="button" data-filter="web" aria-pressed="false">Web app <span class="filter-count">0</span></button>
+            <button type="button" data-filter="api" aria-pressed="false">API <span class="filter-count">0</span></button>
+            <button type="button" data-filter="other" aria-pressed="false">Altri <span class="filter-count">0</span></button>
+          </div>
+          <label class="sort-control">ORDINA PER
+            <select id="sort" aria-label="Ordina servizi">
+              <option value="type">Web app prima</option>
+              <option value="port-asc">Porta crescente</option>
+              <option value="port-desc">Porta decrescente</option>
+              <option value="name-asc">Nome A–Z</option>
+              <option value="name-desc">Nome Z–A</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="notice" class="notice" hidden></div>
+        <div id="empty" class="empty" hidden></div>
+        <div id="services" class="service-list" aria-live="polite" aria-label="Servizi rilevati"></div>
+      </section>
+
+      <section class="tmux-section" id="tmux" role="tabpanel" aria-labelledby="tab-tmux" hidden>
+        <div class="directory-head"><div><span class="section-kicker">02 / REGIA DELLE SESSIONI</span><h2 id="tmux-title">Sessioni tmux<span class="title-period">.</span></h2></div><div class="directory-total"><strong id="tmux-count">—</strong><span>PROGETTI<br>RILEVATI</span></div></div>
+        <p class="tmux-intro">Script trovati automaticamente in <code>~/tmux</code>. Avvia, ferma e controlla le opzioni dichiarate da ciascun progetto.</p>
+        <div id="tmux-notice" class="notice" hidden></div>
+        <div id="tmux-projects" class="tmux-grid" aria-live="polite"></div>
+        <div id="tmux-other" class="tmux-other" hidden></div>
+      </section>
+    </main>
+
+    <dialog id="tmux-confirm" class="action-dialog" aria-labelledby="tmux-confirm-title" aria-describedby="tmux-confirm-description">
+      <form method="dialog">
+        <div class="dialog-top"><span class="section-kicker">LAUNCHPAD / CONFERMA AZIONE</span><button class="dialog-close" type="submit" value="cancel" aria-label="Chiudi">×</button></div>
+        <div class="dialog-glyph" aria-hidden="true">↗</div>
+        <h2 id="tmux-confirm-title"></h2>
+        <p id="tmux-confirm-description"></p>
+        <div class="dialog-project"><span>PROGETTO</span><strong id="tmux-confirm-project"></strong></div>
+        <div class="dialog-actions"><button type="submit" value="cancel" autofocus>Annulla</button><button id="tmux-confirm-submit" class="dialog-primary" type="submit" value="confirm">Conferma</button></div>
+      </form>
+    </dialog>
+
+    <footer class="footer"><span>LAUNCHPAD / LOCAL SERVICE ATLAS</span><span>SCANSIONE AUTOMATICA <b>·</b> SOLO SERVIZI LOCALI</span><a href="#top">↑ TORNA SU</a></footer>
+  </div>
+</body>
+</html>

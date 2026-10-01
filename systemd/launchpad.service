@@ -1,0 +1,13 @@
+[Unit]
+Description=Launchpad local service discovery
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/launchpad
+ExecStart=/usr/bin/python3 -B %h/projects/launchpad/discovery.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

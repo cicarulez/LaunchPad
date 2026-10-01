@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.playwright-mcp/
+.env
+.env.*
+!.env.example
+*.log
