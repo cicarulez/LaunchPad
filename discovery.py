@@ -22,13 +22,14 @@ import sys
 import threading
 import time
 import tmux_control
+import windows_discovery
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urljoin, urlsplit
 
 
 ROOT = Path(__file__).resolve().parent
 SOURCE_FILE = ROOT / "discovery.py"
-BACKEND_FILES = (SOURCE_FILE, ROOT / "tmux_control.py", ROOT / "protocols.py", ROOT / "docker_discovery.py")
+BACKEND_FILES = (SOURCE_FILE, ROOT / "tmux_control.py", ROOT / "protocols.py", ROOT / "docker_discovery.py", ROOT / "windows_discovery.py")
 FRONTEND_FILES = tuple(ROOT / "static" / name for name in ("index.html", "app.js", "style.css", "favicon.svg"))
 PID_PATTERN = re.compile(r"pid=(\d+)")
 REFRESH_SECONDS = 8
@@ -286,7 +287,8 @@ def classify_http(status: int, is_html: bool, title: str | None) -> str:
     return "api"
 
 
-def fetch_metadata(host: str, port: int, scheme: str) -> dict:
+def fetch_metadata(host: str, port: int, scheme: str, request=None) -> dict:
+    request = request or request_local
     origin = f"{scheme}://{host_for_url(host)}:{port}"
     page_url = origin + "/"
     title = None
@@ -296,7 +298,7 @@ def fetch_metadata(host: str, port: int, scheme: str) -> dict:
         try:
             parsed = urlsplit(page_url)
             path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
-            status, headers, body = request_local(host, port, scheme, "GET", path)
+            status, headers, body = request(host, port, scheme, "GET", path)
         except (OSError, http.client.HTTPException, ValueError):
             break
         if status in (301, 302, 303, 307, 308):
@@ -325,7 +327,7 @@ def fetch_metadata(host: str, port: int, scheme: str) -> dict:
 
     if favicon is None and kind == "web":
         try:
-            status, headers, _ = request_local(host, port, scheme, "HEAD", "/favicon.ico")
+            status, headers, _ = request(host, port, scheme, "HEAD", "/favicon.ico")
             icon_type = headers.get("Content-Type", "").lower()
             if 200 <= status < 300 and (icon_type.startswith("image/") or "icon" in icon_type):
                 favicon = origin + "/favicon.ico"
@@ -344,7 +346,8 @@ def _address_priority(address: str) -> int:
 
 def build_services(listeners: list[dict], panes: list[dict], own_port: int | None = None,
                    probe=probe_http, metadata=fetch_metadata,
-                   fingerprint=protocols.identify_tcp, docker_bindings: list[dict] | None = None) -> list[dict]:
+                   fingerprint=protocols.identify_tcp, docker_bindings: list[dict] | None = None,
+                   source: str = "linux") -> list[dict]:
     # Merge dual-stack sockets, but keep distinct containers on the same port separate.
     by_endpoint: dict[tuple[int, str | None], dict] = {}
     for item in listeners:
@@ -365,15 +368,17 @@ def build_services(listeners: list[dict], panes: list[dict], own_port: int | Non
     services = []
     for item in sorted(by_endpoint.values(), key=lambda entry: (entry["port"], entry["address"])):
         port = item["port"]
-        processes = [process_cache.setdefault(pid, proc_info(pid)) for pid in item["pids"]]
-        pane = next((found for pid in item["pids"]
-                     if (found := find_pane(pid, panes_by_pid, process_cache))), None)
+        processes = ([item] if source == "windows" else
+                     [process_cache.setdefault(pid, proc_info(pid)) for pid in item["pids"]])
+        pane = (None if source == "windows" else next((found for pid in item["pids"]
+                     if (found := find_pane(pid, panes_by_pid, process_cache))), None))
         process = processes[0] if processes else None
         cwd = (pane or {}).get("cwd") or (process or {}).get("cwd")
         project = Path(cwd).name if cwd else None
         command = (process or {}).get("command")
         host = browser_host(item["address"])
         services.append({
+            "source": source,
             "port": port,
             "address": item["address"],
             "host": host,
@@ -439,12 +444,23 @@ class Discovery:
             docker_bindings, docker_error = docker_discovery.read_bindings()
             services = build_services(listeners, parse_tmux(tmux_output), self.own_port,
                                       docker_bindings=docker_bindings)
+            windows_listeners, windows_error = windows_discovery.read_listeners()
+            services.extend(build_services(
+                windows_listeners, [], source="windows", probe=windows_discovery.probe_http,
+                metadata=lambda host, port, scheme: fetch_metadata(
+                    host, port, scheme, request=windows_discovery.request_local),
+                fingerprint=lambda host, port, command, image: protocols.identify_tcp(
+                    host, port, command, image, verify_handshake=False),
+            ))
+            priority = {"web": 0, "api": 1, "http": 2, "tcp": 3}
+            services.sort(key=lambda service: (priority[service["kind"]], service["port"]))
             self.cached = {
                 "services": services,
                 "updated_at": int(time.time()),
                 "listener_error": ss_error,
                 "tmux_error": tmux_error if tmux_error and tmux_error != "no server running on /tmp/tmux-1000/default" else None,
                 "docker_error": docker_error,
+                "windows_error": windows_error,
             }
             self.cached_at = time.monotonic()
             return {**self.cached, "version": content_version()}

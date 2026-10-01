@@ -75,7 +75,7 @@ function row(service, index) {
   const rowText = element('div', 'row-text');
   const launcher = tmuxProjects.find(project => project.session === service.tmux?.session);
   rowText.append(element('span', 'row-kind',
-    `${service.protocol ? 'SERVIZIO TCP' : labels[service.kind] || 'HTTP'}${service.docker ? ' · DOCKER' : ''}`));
+    `${service.protocol ? 'SERVIZIO TCP' : labels[service.kind] || 'HTTP'}${service.docker ? ' · DOCKER' : ''}${service.source === 'windows' ? ' · WINDOWS' : ''}`));
   rowText.append(element('h3', 'row-title', service.protocol || service.title || service.project || service.docker?.name || service.command || `Porta ${service.port}`));
   const details = [];
   if (service.protocol) details.push({handshake: 'Protocollo verificato', process: 'Riconosciuto dal processo', image: 'Probabile dall’immagine Docker', port: 'Probabile dalla porta'}[service.protocol_evidence]);
@@ -213,6 +213,7 @@ function applySnapshot(data) {
   if (data.listener_error) errors.push(`Rilevamento porte: ${data.listener_error}`);
   if (data.tmux_error) errors.push(`Tmux: ${data.tmux_error}`);
   if (data.docker_error) errors.push(`Docker: ${data.docker_error}`);
+  if (data.windows_error) errors.push(`Windows: ${data.windows_error}`);
   notice.hidden = errors.length === 0;
   notice.textContent = errors.join(' · ');
   tmuxOther.hidden = data.other_sessions.length === 0;

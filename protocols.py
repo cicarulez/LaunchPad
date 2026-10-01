@@ -78,7 +78,8 @@ PROBES = {"PostgreSQL": probe_postgres, "MongoDB": probe_mongodb,
           "Memcached": probe_memcached}
 
 
-def identify_tcp(host: str, port: int, command: str | None, image: str | None = None) -> dict:
+def identify_tcp(host: str, port: int, command: str | None, image: str | None = None,
+                 *, verify_handshake: bool = True) -> dict:
     process_type = COMMANDS.get((command or "").lower())
     image_name = (image or "").rsplit("/", 1)[-1].split(":", 1)[0].lower()
     image_type = IMAGES.get(image_name)
@@ -86,7 +87,7 @@ def identify_tcp(host: str, port: int, command: str | None, image: str | None = 
     if not label:
         return {"protocol": None, "protocol_evidence": None}
     probe = PROBES.get(label)
-    if probe:
+    if probe and verify_handshake:
         try:
             if probe(host, port):
                 return {"protocol": label, "protocol_evidence": "handshake"}
