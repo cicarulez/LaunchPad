@@ -23,6 +23,7 @@ const tmuxPanel = document.querySelector('#tmux');
 let services = [];
 let tmuxProjects = [];
 let tmuxJobs = [];
+const dismissedTmuxJobs = new Set();
 let tmuxToken = null;
 let refreshing = false;
 let currentVersion = null;
@@ -248,8 +249,17 @@ function renderTmux() {
     }
     card.append(actions);
     const job = [...tmuxJobs].reverse().find(item => item.project === project.id);
-    if (job) {
+    if (job && !dismissedTmuxJobs.has(job.id)) {
       const result = element('div', `tmux-result ${job.state}`);
+      const close = element('button', 'tmux-result-close', '×');
+      close.type = 'button';
+      close.title = 'Chiudi messaggio';
+      close.setAttribute('aria-label', `Chiudi messaggio di ${project.id}`);
+      close.addEventListener('click', () => {
+        dismissedTmuxJobs.add(job.id);
+        result.remove();
+      });
+      result.append(close);
       result.append(element('strong', '', `${job.action}: ${job.state === 'running' ? 'in corso…' : job.state === 'done' ? 'completato' : 'errore'}`));
       if (job.output) result.append(element('pre', '', job.output));
       card.append(result);

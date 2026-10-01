@@ -143,7 +143,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .tmux-actions button { padding: 9px 12px; border: 1px solid var(--ink); background: var(--ink); color: #fffdf8; font-size: 11px; font-weight: 700; }
 .tmux-actions button:hover { background: #34434a; }.tmux-actions button.danger { border-color: #cf8067; background: transparent; color: #a0452c; }.tmux-actions button.danger:hover { background: #fff0e8; }
 .tmux-unavailable { color: #879189; font-size: 11px; }
-.tmux-result { margin-top: 17px; padding: 11px; background: #f0f2eb; color: #384943; font-size: 11px; }
+.tmux-result { position: relative; margin-top: 17px; padding: 11px; background: #f0f2eb; color: #384943; font-size: 11px; }
+.tmux-result strong { display: block; padding-right: 28px; }
+.tmux-result-close { position: absolute; top: 5px; right: 5px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: inherit; font-size: 20px; line-height: 1; }
+.tmux-result-close:hover { background: #0000000d; }
 .tmux-result.failed { background: #fff0e8; color: #9c4d34; }
 .tmux-result pre { margin: 8px 0 0; overflow: auto; max-height: 160px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 .tmux-other { margin-top: 18px; color: #879189; font-size: 11px; }
