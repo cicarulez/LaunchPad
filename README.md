@@ -41,6 +41,41 @@ Quando il socket Docker locale è accessibile, Launchpad legge le porte TCP pubb
 
 In WSL, Launchpad rileva automaticamente anche le porte TCP Windows tramite `powershell.exe`, mostrando **Windows**, nome del processo, PID e ora di avvio quando disponibili. Il rilevamento Windows legge l’elenco delle porte senza inviare richieste ai servizi. Le verifiche HTTP/HTTPS e la lettura di titolo e favicon tramite `curl.exe` vengono eseguite solo sulle porte indicate esplicitamente in `LAUNCHPAD_WINDOWS_HTTP_PORTS` (numeri separati da virgole, ad esempio `5178,3000`). Questa limitazione evita di contattare automaticamente servizi come SpaceDesk, che possono mostrare richieste di connessione. Le altre porte Windows compaiono come TCP con i dati del processo. I link locali sono pensati per un browser Windows. Le porte Windows e Linux rimangono distinte anche quando hanno lo stesso numero; i PID Windows non vengono associati a processi o sessioni tmux Linux. Il rilevamento richiede l'interoperabilità WSL con Windows: gli eseguibili vengono cercati nel PATH e in `/mnt/c/Windows/System32`, anche quando `appendWindowsPath=false`. Gli errori di scansione Windows compaiono nella dashboard senza interrompere il rilevamento Linux. Per i servizi TCP Windows, il protocollo è dedotto dal processo o dalla porta senza verifiche di protocollo dal lato Linux.
 
+## Tray Windows con backend WSL
+
+Il tray apre la dashboard nel browser Windows su `http://127.0.0.1:7777`, con doppio clic o con **Apri Launchpad** nel menu del tasto destro. Usa IPv4 esplicitamente, come il backend, per evitare timeout quando Windows risolve `localhost` su IPv6. L'icona arancione indica che la dashboard è raggiungibile; quella grigia indica che è offline. La verifica usa `/api/health` ogni 8 secondi, senza richiedere una scansione dei servizi.
+
+Richiede Windows PowerShell 5.1 e il servizio utente `launchpad.service` già installato nella distribuzione WSL come descritto sopra. Non richiede pacchetti aggiuntivi o privilegi amministrativi. Dalla root del repository in WSL:
+
+```bash
+/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe \
+  -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w "$PWD/tray/install.ps1")" \
+  -Distribution "$WSL_DISTRO_NAME" -WslUser "$USER"
+```
+
+L'installer copia l'utility in `%LOCALAPPDATA%\Launchpad`, crea un collegamento nel menu Start e uno nella cartella Esecuzione automatica, poi avvia il tray. La copia locale permette l'avvio anche quando WSL non è ancora in esecuzione. All'avvio il tray chiede a WSL di avviare il servizio con `systemctl --user start launchpad.service`; non apre automaticamente il browser. Distribuzione e utente sono espliciti per usare le stesse sessioni tmux del backend.
+
+Il menu comprende **Avvia servizio**, **Riavvia servizio**, **Avvia il tray al login** e **Esci dal tray**. Uscire chiude solo l'icona: il backend resta attivo. Un errore di avvio o riavvio viene mostrato con una notifica. Una seconda apertura non crea un'altra icona. L'avvio al login dell'icona Windows e l'abilitazione del servizio systemd sono indipendenti.
+
+Per aggiornare il tray, chiudilo dal menu e riesegui l'installer. `-NoStart` installa senza avviarlo. Se il backend usa una porta diversa, aggiungi `-Port 9000`; l'opzione configura l'URL del tray, mentre la porta del backend va configurata separatamente nell'unità systemd.
+
+Per rimuovere i collegamenti e chiudere il tray, lasciando attivo il servizio:
+
+```bash
+/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe \
+  -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w "$PWD/tray/install.ps1")" -Uninstall
+```
+
+Dopo la chiusura puoi eliminare `%LOCALAPPDATA%\Launchpad`. Per verificare configurazione, creazione delle icone e menu senza avviare il servizio, esegui da PowerShell Windows:
+
+```powershell
+& "$env:LOCALAPPDATA\Launchpad\launchpad-tray.ps1" -Check
+```
+
+L'integrazione usa [NotifyIcon di Windows Forms](https://learn.microsoft.com/dotnet/desktop/winforms/controls/how-to-associate-a-shortcut-menu-with-a-windows-forms-notifyicon-component) e i [comandi WSL con distribuzione e utente espliciti](https://learn.microsoft.com/windows/wsl/basic-commands).
+
 ## Script tmux
 
 I tab **Servizi** e **Sessioni tmux** mostrano una sezione per volta. La sezione tmux trova automaticamente ogni `~/tmux/<progetto>.sh`. Associa `kill-<progetto>.sh` per l'arresto e `switch-<progetto>.sh` per le opzioni aggiuntive, senza un registro centrale. Lo script di avvio deve accettare `--detach` per poter essere lanciato dalla pagina. Lo stato viene letto dalle sessioni tmux effettive; i servizi nella pagina mostrano il collegamento al relativo launcher.

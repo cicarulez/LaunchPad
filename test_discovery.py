@@ -1,16 +1,39 @@
 import unittest
+import http.client
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event, Thread
 from unittest.mock import patch
 
-from discovery import (LiveFeed, PageMetadataParser, allowed_local_host, build_services, browser_host, classify_http,
+from discovery import (Handler, LiveFeed, PageMetadataParser, allowed_local_host, build_services, browser_host, classify_http,
                        content_version, fetch_metadata, find_pane, local_asset_url,
                        parse_ss, parse_tmux, watch_source)
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_health_identifies_launchpad_without_waiting_for_discovery(self):
+        # No feed or actions are attached: health must work before the first scan.
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        connection = http.client.HTTPConnection(*server.server_address, timeout=2)
+        try:
+            connection.request("GET", "/api/health")
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read()), {"application": "launchpad", "status": "ok"})
+            connection.request("GET", "/api/health", headers={"Host": "example.com"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 403)
+            response.read()
+        finally:
+            connection.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_only_loopback_hosts_are_accepted(self):
         self.assertTrue(allowed_local_host("localhost:7777", 7777))
         self.assertTrue(allowed_local_host("127.0.0.1:7777", 7777))

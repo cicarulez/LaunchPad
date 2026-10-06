@@ -624,6 +624,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         request_url = urlsplit(self.path)
         path = request_url.path
+        if path == "/api/health":
+            self.send_json(200, {"application": "launchpad", "status": "ok"})
+            return
         files = {"/": ("index.html", "text/html; charset=utf-8"),
                  "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                  "/style.css": ("style.css", "text/css; charset=utf-8"),
