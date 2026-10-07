@@ -13,7 +13,7 @@ const mapApi = document.querySelector('#map-api');
 const mapOther = document.querySelector('#map-other');
 const mapCore = document.querySelector('.signal-core');
 const tmuxList = document.querySelector('#tmux-projects');
-const tmuxNotice = document.querySelector('#tmux-notice');
+const toastList = document.querySelector('#toasts');
 const tmuxOther = document.querySelector('#tmux-other');
 const tmuxDialog = document.querySelector('#tmux-confirm');
 const tabServices = document.querySelector('#tab-services');
@@ -23,7 +23,14 @@ const tmuxPanel = document.querySelector('#tmux');
 let services = [];
 let tmuxProjects = [];
 let tmuxJobs = [];
-const dismissedTmuxJobs = new Set();
+const toasts = new Map();
+const dismissedToasts = new Set();
+const seenTmuxJobs = new Map();
+const jobToastKeys = new Map();
+const pendingToastKeys = new Map();
+let jobsInitialized = false;
+let toastSequence = 0;
+const pendingTmuxActions = new Map();
 let tmuxToken = null;
 let refreshing = false;
 let currentVersion = null;
@@ -219,7 +226,7 @@ function applySnapshot(data) {
   notice.textContent = errors.join(' · ');
   tmuxOther.hidden = data.other_sessions.length === 0;
   tmuxOther.textContent = data.other_sessions.length ? `Altre sessioni attive: ${data.other_sessions.join(' · ')}` : '';
-  tmuxNotice.hidden = true;
+  syncTmuxToasts();
   renderTmux();
   render();
   updateUptimes();
@@ -248,25 +255,68 @@ function renderTmux() {
         action === 'status' ? 'Stato provider' : `Usa ${action}`));
     }
     card.append(actions);
-    const job = [...tmuxJobs].reverse().find(item => item.project === project.id);
-    if (job && !dismissedTmuxJobs.has(job.id)) {
-      const result = element('div', `tmux-result ${job.state}`);
-      const close = element('button', 'tmux-result-close', '×');
-      close.type = 'button';
-      close.title = 'Chiudi messaggio';
-      close.setAttribute('aria-label', `Chiudi messaggio di ${project.id}`);
-      close.addEventListener('click', () => {
-        dismissedTmuxJobs.add(job.id);
-        result.remove();
-      });
-      result.append(close);
-      result.append(element('strong', '', `${job.action}: ${job.state === 'running' ? 'in corso…' : job.state === 'done' ? 'completato' : 'errore'}`));
-      if (job.output) result.append(element('pre', '', job.output));
-      card.append(result);
-    }
     return card;
   }));
   scrollToTmuxCard();
+}
+
+function closeToast(key) {
+  const toast = toasts.get(key);
+  if (toast) {
+    clearTimeout(toast.timer);
+    toast.node.remove();
+    toasts.delete(key);
+  }
+  dismissedToasts.add(key);
+}
+
+function showToast(key, title, state, output = '') {
+  if (dismissedToasts.has(key)) return;
+  let toast = toasts.get(key);
+  if (!toast) {
+    const node = element('article', 'toast');
+    const close = element('button', 'toast-close', '×');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Chiudi notifica');
+    close.addEventListener('click', () => closeToast(key));
+    const heading = element('strong');
+    const details = element('pre');
+    node.append(close, heading, details);
+    toast = {node, heading, details, timer: null};
+    toasts.set(key, toast);
+    toastList.prepend(node);
+  }
+  clearTimeout(toast.timer);
+  toast.node.className = `toast ${state}`;
+  toast.heading.textContent = title;
+  toast.details.textContent = output;
+  toast.details.hidden = !output;
+  if (state !== 'running') toast.timer = setTimeout(() => closeToast(key), 25000);
+}
+
+function tmuxActionMessage(action, state) {
+  if (state === 'failed') return action === 'start' ? 'Avvio non riuscito'
+    : action === 'stop' ? 'Arresto non riuscito' : `${action}: errore`;
+  if (action === 'start') return state === 'running' ? 'Avvio in corso…' : 'Avvio completato';
+  if (action === 'stop') return state === 'running' ? 'Arresto in corso…' : 'Arresto completato';
+  return `${action}: ${state === 'running' ? 'in corso…' : 'completato'}`;
+}
+
+function syncTmuxToasts() {
+  for (const job of tmuxJobs) {
+    const previous = seenTmuxJobs.get(job.id);
+    seenTmuxJobs.set(job.id, job.state);
+    if (previous === job.state) continue;
+    // Al primo caricamento mostra solo i comandi ancora in corso.
+    if (!jobsInitialized && job.state !== 'running') continue;
+    let key = jobToastKeys.get(job.id);
+    if (!key) {
+      key = pendingToastKeys.get(job.project) || `job:${job.id}`;
+      jobToastKeys.set(job.id, key);
+    }
+    showToast(key, `${job.project} · ${tmuxActionMessage(job.action, job.state)}`, job.state, job.output);
+  }
+  jobsInitialized = true;
 }
 
 function scrollToTmuxCard() {
@@ -306,14 +356,30 @@ function confirmTmuxAction(project, action) {
 }
 
 function tmuxButton(project, action, label) {
-  const button = element('button', action === 'stop' ? 'danger' : '', label);
+  const runningAction = pendingTmuxActions.get(project.id)
+    || tmuxJobs.find(job => job.project === project.id && job.state === 'running')?.action;
+  const busy = runningAction === action;
+  const busyLabel = action === 'start' ? 'Avvio in corso…'
+    : action === 'stop' ? 'Arresto in corso…' : 'Comando in corso…';
+  const button = element('button', action === 'stop' ? 'danger' : '', busy ? busyLabel : label);
   button.type = 'button';
+  button.disabled = Boolean(runningAction);
+  if (busy) button.setAttribute('aria-busy', 'true');
   button.addEventListener('click', () => runTmuxAction(project, action));
   return button;
 }
 
 async function runTmuxAction(project, action) {
+  const isBusy = () => pendingTmuxActions.has(project.id)
+    || tmuxJobs.some(job => job.project === project.id && job.state === 'running');
+  if (isBusy()) return;
   if (action !== 'start' && action !== 'status' && !await confirmTmuxAction(project, action)) return;
+  if (isBusy()) return;
+  pendingTmuxActions.set(project.id, action);
+  const toastKey = `request:${++toastSequence}`;
+  pendingToastKeys.set(project.id, toastKey);
+  showToast(toastKey, `${project.id} · ${tmuxActionMessage(action, 'running')}`, 'running');
+  renderTmux();
   try {
     const response = await fetch('/api/tmux/action', {
       method: 'POST',
@@ -322,10 +388,14 @@ async function runTmuxAction(project, action) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    tmuxNotice.hidden = true;
+    if (!tmuxJobs.some(job => job.id === data.job.id)) tmuxJobs.push(data.job);
+    syncTmuxToasts();
   } catch (error) {
-    tmuxNotice.hidden = false;
-    tmuxNotice.textContent = `${project.id}: ${error.message}`;
+    showToast(toastKey, `${project.id} · ${tmuxActionMessage(action, 'failed')}`, 'failed', error.message);
+  } finally {
+    pendingTmuxActions.delete(project.id);
+    pendingToastKeys.delete(project.id);
+    renderTmux();
   }
 }
 
