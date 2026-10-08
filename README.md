@@ -78,6 +78,8 @@ L'integrazione usa [NotifyIcon di Windows Forms](https://learn.microsoft.com/dot
 
 ## Script tmux
 
+Il pulsante **Riavvia sessione** è disponibile per le sessioni attive con script di arresto e avvio compatibile con `--detach`. Esegue `kill-<progetto>.sh` e, solo se termina con successo, `<progetto>.sh --detach`, in sequenza e come unica operazione. Non servono script di riavvio dedicati. Il riavvio richiede conferma e blocca gli altri comandi sul progetto fino al completamento.
+
 I tab **Servizi** e **Sessioni tmux** mostrano una sezione per volta. La sezione tmux trova automaticamente ogni `~/tmux/<progetto>.sh`. Associa `kill-<progetto>.sh` per l'arresto e `switch-<progetto>.sh` per le opzioni aggiuntive, senza un registro centrale. Lo script di avvio deve accettare `--detach` per poter essere lanciato dalla pagina. Lo stato viene letto dalle sessioni tmux effettive; i servizi nella pagina mostrano il collegamento al relativo launcher.
 
 Se la sessione ha un nome diverso dal file, aggiungi nelle prime 40 righe dello script `# launchpad-session: nome-sessione`. Per esporre opzioni nello script switch, aggiungi `# launchpad-actions: status opzione1 opzione2` e implementa quei nomi come primo argomento dello script. Le operazioni vengono eseguite solo dopo un clic nella pagina, con conferma per arresto e opzioni aggiuntive; lo stato e l'output compaiono nella card.

@@ -76,13 +76,20 @@ class ActionManager:
             if not item["active"] or not item["stop"]:
                 raise ValueError("Arresto non disponibile")
             script, args = self.directory / f"kill-{project}.sh", []
+        elif action == "restart":
+            if not item["active"] or not item["stop"] or not item["start"]:
+                raise ValueError("Riavvio non disponibile")
+            script, args = self.directory / f"kill-{project}.sh", []
         elif action in item["actions"]:
             if not item["active"]:
                 raise ValueError("Sessione non attiva")
             script, args = self.directory / f"switch-{project}.sh", [action]
         else:
             raise ValueError("Azione non dichiarata dallo script")
-        if not script.is_file():
+        commands = [(script, args)]
+        if action == "restart":
+            commands.append((self.directory / f"{project}.sh", ["--detach"]))
+        if any(not path.is_file() for path, _ in commands):
             raise ValueError("Script non trovato")
         with self.lock:
             if any(job["project"] == project and job["state"] == "running" for job in self.jobs.values()):
@@ -95,11 +102,11 @@ class ActionManager:
                 for old_id in list(self.jobs)[:-100]:
                     if self.jobs[old_id]["state"] != "running":
                         del self.jobs[old_id]
-        threading.Thread(target=self._run, args=(job_id, script, args), daemon=True).start()
+        threading.Thread(target=self._run, args=(job_id, commands), daemon=True).start()
         self.on_change()
         return dict(job)
 
-    def _run(self, job_id: str, script: Path, args: list[str]):
+    def _run(self, job_id: str, commands: list[tuple[Path, list[str]]]):
         env = os.environ.copy()
         node_root = Path.home() / ".nvm/versions/node"
         if node_root.is_dir():
@@ -108,16 +115,21 @@ class ActionManager:
                 env["PATH"] = f"{versions[0]}:{env.get('PATH', '')}"
         env["PATH"] = f"{Path.home() / '.local/bin'}:{env.get('PATH', '')}"
         env.pop("TMUX", None)
+        output = ""
+        state = "done"
         try:
-            result = subprocess.run(["bash", str(script), *args], cwd=self.directory,
-                                    env=env, stdin=subprocess.DEVNULL,
-                                    capture_output=True, text=True, errors="replace", timeout=600)
-            output = (result.stdout + result.stderr)[-4000:].strip()
-            state = "done" if result.returncode == 0 else "failed"
-            if result.returncode and not output:
-                output = f"Comando terminato con codice {result.returncode}"
+            for script, args in commands:
+                result = subprocess.run(["bash", str(script), *args], cwd=self.directory,
+                                        env=env, stdin=subprocess.DEVNULL,
+                                        capture_output=True, text=True, errors="replace", timeout=600)
+                output = (output + result.stdout + result.stderr)[-4000:]
+                if result.returncode:
+                    state = "failed"
+                    output = (output + f"\n{script.name}: comando terminato con codice {result.returncode}")[-4000:]
+                    break
+            output = output.strip()
         except (OSError, subprocess.TimeoutExpired) as exc:
-            state, output = "failed", str(exc)[-4000:]
+            state, output = "failed", (output + "\n" + str(exc))[-4000:].strip()
         with self.lock:
             self.jobs[job_id].update(state=state, output=output, finished_at=int(time.time()))
         self.on_change()

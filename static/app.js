@@ -248,6 +248,7 @@ function renderTmux() {
       `Sessione ${project.session} · ${project.service_count} servizi rilevati`));
     const actions = element('div', 'tmux-actions');
     if (project.active && project.stop) actions.append(tmuxButton(project, 'stop', 'Ferma sessione'));
+    if (project.active && project.stop && project.start) actions.append(tmuxButton(project, 'restart', 'Riavvia sessione'));
     if (!project.active && project.start) actions.append(tmuxButton(project, 'start', 'Avvia sessione'));
     if (!project.active && !project.start) actions.append(element('span', 'tmux-unavailable', 'Avvio da pagina: richiede --detach'));
     for (const action of project.actions) {
@@ -296,9 +297,11 @@ function showToast(key, title, state, output = '') {
 
 function tmuxActionMessage(action, state) {
   if (state === 'failed') return action === 'start' ? 'Avvio non riuscito'
+    : action === 'restart' ? 'Riavvio non riuscito'
     : action === 'stop' ? 'Arresto non riuscito' : `${action}: errore`;
   if (action === 'start') return state === 'running' ? 'Avvio in corso…' : 'Avvio completato';
   if (action === 'stop') return state === 'running' ? 'Arresto in corso…' : 'Arresto completato';
+  if (action === 'restart') return state === 'running' ? 'Riavvio in corso…' : 'Riavvio completato';
   return `${action}: ${state === 'running' ? 'in corso…' : 'completato'}`;
 }
 
@@ -339,15 +342,17 @@ function activateTab(view) {
 
 function confirmTmuxAction(project, action) {
   const stopping = action === 'stop';
-  const title = stopping ? 'Fermare la sessione?' : `Passare a ${action}?`;
+  const restarting = action === 'restart';
+  const title = stopping ? 'Fermare la sessione?' : restarting ? 'Riavviare la sessione?' : `Passare a ${action}?`;
   const description = stopping
     ? `Verrà eseguito lo script di arresto per la sessione ${project.session}. I servizi del progetto potrebbero interrompersi.`
+    : restarting ? `La sessione ${project.session} verrà fermata e poi avviata di nuovo. Se l’arresto fallisce, l’avvio non verrà eseguito.`
     : `Verrà eseguita l’opzione ${action} dello script ${project.id}. Il cambio provider può riavviare API e worker.`;
   document.querySelector('#tmux-confirm-title').textContent = title;
   document.querySelector('#tmux-confirm-description').textContent = description;
   document.querySelector('#tmux-confirm-project').textContent = `${project.id} / ${project.session}`;
-  document.querySelector('#tmux-confirm-submit').textContent = stopping ? 'Ferma sessione' : `Usa ${action}`;
-  tmuxDialog.classList.toggle('is-danger', stopping);
+  document.querySelector('#tmux-confirm-submit').textContent = stopping ? 'Ferma sessione' : restarting ? 'Riavvia sessione' : `Usa ${action}`;
+  tmuxDialog.classList.toggle('is-danger', stopping || restarting);
   tmuxDialog.returnValue = 'cancel';
   tmuxDialog.showModal();
   return new Promise(resolve => {
@@ -360,6 +365,7 @@ function tmuxButton(project, action, label) {
     || tmuxJobs.find(job => job.project === project.id && job.state === 'running')?.action;
   const busy = runningAction === action;
   const busyLabel = action === 'start' ? 'Avvio in corso…'
+    : action === 'restart' ? 'Riavvio in corso…'
     : action === 'stop' ? 'Arresto in corso…' : 'Comando in corso…';
   const button = element('button', action === 'stop' ? 'danger' : '', busy ? busyLabel : label);
   button.type = 'button';
