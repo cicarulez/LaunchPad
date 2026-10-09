@@ -7,6 +7,22 @@ from discovery import build_services
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_smtp_greeting_and_mailpit_image(self):
+        from unittest.mock import MagicMock
+        for greeting, expected in [(b"220 local ESMTP ready\r\n", True),
+                                   (b"220 local SMTP ready\r\n", True),
+                                   (b"220 FTP ready\r\n", False),
+                                   (b"HTTP/1.1 200 OK\r\n", False)]:
+            sock = MagicMock()
+            sock.__enter__.return_value = sock
+            sock.recv.side_effect = [bytes([byte]) for byte in greeting]
+            with patch("protocols.socket.create_connection", return_value=sock):
+                self.assertEqual(protocols.probe_smtp("127.0.0.1", 1025), expected)
+            sock.sendall.assert_not_called()
+        with patch.dict(protocols.PROBES, {"SMTP": lambda host, port: True}):
+            self.assertEqual(protocols.identify_tcp("127.0.0.1", 2525, None, "axllent/mailpit:v1.27"),
+                             {"protocol": "SMTP", "protocol_evidence": "handshake"})
+
     def test_handshake_then_process_then_port_evidence(self):
         with patch.dict(protocols.PROBES, {"PostgreSQL": lambda host, port: True}):
             self.assertEqual(protocols.identify_tcp("127.0.0.1", 5432, None),

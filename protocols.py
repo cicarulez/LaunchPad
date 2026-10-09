@@ -8,14 +8,15 @@ import struct
 
 TIMEOUT = 0.35
 PORTS = {5432: "PostgreSQL", 27017: "MongoDB", 27018: "MongoDB",
-         27019: "MongoDB", 6379: "Redis", 3306: "MySQL/MariaDB", 11211: "Memcached"}
+         27019: "MongoDB", 6379: "Redis", 3306: "MySQL/MariaDB", 11211: "Memcached",
+         25: "SMTP", 587: "SMTP", 1025: "SMTP"}
 COMMANDS = {"postgres": "PostgreSQL", "postmaster": "PostgreSQL",
             "mongod": "MongoDB", "mongos": "MongoDB", "redis-server": "Redis",
             "mysqld": "MySQL/MariaDB", "mariadbd": "MySQL/MariaDB",
-            "memcached": "Memcached", "sshd": "SSH"}
+            "memcached": "Memcached", "sshd": "SSH", "mailpit": "SMTP"}
 IMAGES = {"postgres": "PostgreSQL", "postgis": "PostgreSQL", "mongo": "MongoDB",
           "redis": "Redis", "mysql": "MySQL/MariaDB", "mariadb": "MySQL/MariaDB",
-          "memcached": "Memcached"}
+          "memcached": "Memcached", "mailpit": "SMTP", "mailhog": "SMTP"}
 
 
 def recv_exact(sock: socket.socket, size: int) -> bytes:
@@ -73,7 +74,20 @@ def probe_memcached(host: str, port: int) -> bool:
         return sock.recv(128).startswith(b"VERSION ")
 
 
-PROBES = {"PostgreSQL": probe_postgres, "MongoDB": probe_mongodb,
+def probe_smtp(host: str, port: int) -> bool:
+    # Read the greeting only; discovery must not start a mail transaction.
+    with socket.create_connection((host, port), timeout=TIMEOUT) as sock:
+        sock.settimeout(TIMEOUT)
+        greeting = bytearray()
+        while len(greeting) < 512 and not greeting.endswith(b"\n"):
+            chunk = sock.recv(1)
+            if not chunk:
+                break
+            greeting.extend(chunk)
+    return greeting.startswith(b"220 ") and b"SMTP" in greeting.upper()
+
+
+PROBES = {"SMTP": probe_smtp, "PostgreSQL": probe_postgres, "MongoDB": probe_mongodb,
           "Redis": probe_redis, "MySQL/MariaDB": probe_mysql,
           "Memcached": probe_memcached}
 

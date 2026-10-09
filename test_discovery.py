@@ -1,6 +1,7 @@
 import unittest
 import http.client
 import json
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,10 +10,54 @@ from unittest.mock import patch
 
 from discovery import (Handler, LiveFeed, PageMetadataParser, allowed_local_host, build_services, browser_host, classify_http,
                        content_version, fetch_metadata, find_pane, local_asset_url,
-                       parse_ss, parse_tmux, watch_source)
+                       parse_ss, parse_tmux, probe_http, watch_source)
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_smtp_greeting_prevents_http_and_tls_on_any_port(self):
+        received = []
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            def serve():
+                connection, _ = listener.accept()
+                with connection:
+                    connection.settimeout(2)
+                    connection.sendall(b"220 test Mailpit ESMTP Service ready\r\n")
+                    received.append(connection.recv(4096))
+            thread = Thread(target=serve)
+            thread.start()
+            try:
+                with patch("discovery.ssl._create_unverified_context") as tls:
+                    self.assertIsNone(probe_http(*listener.getsockname()))
+                    tls.assert_not_called()
+            finally:
+                thread.join(3)
+        self.assertEqual(received, [b""])
+
+    def test_http_still_detected_on_smtp_port(self):
+        # Port numbers alone must never suppress a working web app.
+        from unittest.mock import MagicMock
+        connection = MagicMock()
+        connection.recv.return_value = b"HTTP/1.1 200 OK"
+        with (patch("discovery.socket.create_connection", return_value=connection),
+              patch("discovery.select.select", return_value=([], [], []))):
+            self.assertEqual(probe_http("127.0.0.1", 1025), "http")
+        connection.sendall.assert_called_once_with(b"HEAD / HTTP/1.0\r\nHost: localhost\r\n\r\n")
+
+    def test_https_fallback_is_preserved(self):
+        from unittest.mock import MagicMock
+        plain, secure = MagicMock(), MagicMock()
+        plain.recv.side_effect = ConnectionResetError
+        secure.recv.return_value = b"HTTP/1.1 200 OK"
+        context = MagicMock()
+        context.wrap_socket.return_value = secure
+        with (patch("discovery.socket.create_connection", side_effect=[plain, MagicMock()]),
+              patch("discovery.select.select", return_value=([], [], [])),
+              patch("discovery.ssl._create_unverified_context", return_value=context)):
+            self.assertEqual(probe_http("127.0.0.1", 8443), "https")
+        context.wrap_socket.assert_called_once()
+
     def test_health_identifies_launchpad_without_waiting_for_discovery(self):
         # No feed or actions are attached: health must work before the first scan.
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

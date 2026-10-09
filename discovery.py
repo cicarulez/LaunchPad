@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import protocols
 import re
+import select
 import socket
 import ssl
 import subprocess
@@ -203,6 +204,12 @@ def probe_http(host: str, port: int) -> str | None:
         try:
             connection = socket.create_connection((host, port), timeout=PROBE_TIMEOUT)
             connection.settimeout(PROBE_TIMEOUT)
+            # SMTP, SSH and other server-first protocols send a greeting before
+            # any request. Never send HTTP or a TLS ClientHello to those services.
+            if scheme == "http" and select.select([connection], [], [], PROBE_TIMEOUT)[0]:
+                with connection:
+                    connection.recv(512)
+                    return None
             if scheme == "https":
                 context = ssl._create_unverified_context()
                 connection = context.wrap_socket(connection, server_hostname=host)
