@@ -375,6 +375,26 @@ function tmuxButton(project, action, label) {
   return button;
 }
 
+async function authorizedPost(path, options = {}) {
+  const send = () => fetch(path, {
+    ...options,
+    method: 'POST',
+    headers: {...options.headers, 'X-Launchpad-Token': tmuxToken},
+  });
+  let response = await send();
+  let data = await response.json();
+  if (response.status === 403 && data.code === 'token_expired') {
+    const session = await fetch('/api/tmux', {cache: 'no-store'});
+    const current = await session.json();
+    if (!session.ok) throw new Error(current.error || `HTTP ${session.status}`);
+    tmuxToken = current.token;
+    response = await send();
+    data = await response.json();
+  }
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
 async function runTmuxAction(project, action) {
   const isBusy = () => pendingTmuxActions.has(project.id)
     || tmuxJobs.some(job => job.project === project.id && job.state === 'running');
@@ -387,13 +407,10 @@ async function runTmuxAction(project, action) {
   showToast(toastKey, `${project.id} · ${tmuxActionMessage(action, 'running')}`, 'running');
   renderTmux();
   try {
-    const response = await fetch('/api/tmux/action', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Launchpad-Token': tmuxToken},
+    const data = await authorizedPost('/api/tmux/action', {
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({project: project.id, action}),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     if (!tmuxJobs.some(job => job.id === data.job.id)) tmuxJobs.push(data.job);
     syncTmuxToasts();
   } catch (error) {
@@ -410,11 +427,7 @@ async function requestRefresh() {
   refreshing = true;
   refreshButton.disabled = true;
   try {
-    const response = await fetch('/api/refresh', {
-      method: 'POST', headers: {'X-Launchpad-Token': tmuxToken},
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const data = await authorizedPost('/api/refresh');
     showUpdated(data.updated_at);
   } catch (error) {
     notice.hidden = false;

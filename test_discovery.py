@@ -8,12 +8,73 @@ from tempfile import TemporaryDirectory
 from threading import Event, Thread
 from unittest.mock import patch
 
-from discovery import (Handler, LiveFeed, PageMetadataParser, allowed_local_host, build_services, browser_host, classify_http,
+from discovery import (Discovery, Handler, LiveFeed, PageMetadataParser, allowed_local_host, build_services, browser_host, classify_http,
                        content_version, fetch_metadata, find_pane, local_asset_url,
                        parse_ss, parse_tmux, probe_http, watch_source)
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_post_authorization_after_backend_restart(self):
+        from unittest.mock import MagicMock
+        actions = MagicMock(token="current-token")
+        actions.submit.return_value = {"id": "job-1"}
+        feed = MagicMock()
+        feed.read.return_value = {"projects": []}
+        handler = type("TestHandler", (Handler,), {"actions": actions, "feed": feed})
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host = f"127.0.0.1:{server.server_address[1]}"
+        cases = [
+            (f"http://{host}", "old-token", 403, "token_expired"),
+            ("http://example.com", "current-token", 403, None),
+            (None, "current-token", 403, None),
+            (f"http://{host}", "current-token", 202, None),
+        ]
+        try:
+            for origin, token, status, code in cases:
+                with self.subTest(origin=origin, token=token):
+                    connection = http.client.HTTPConnection(*server.server_address, timeout=2)
+                    try:
+                        headers = {"Content-Type": "application/json", "X-Launchpad-Token": token}
+                        if origin is not None:
+                            headers["Origin"] = origin
+                        connection.request("POST", "/api/tmux/action",
+                                           json.dumps({"project": "example", "action": "start"}), headers)
+                        response = connection.getresponse()
+                        self.assertEqual(response.status, status)
+                        self.assertEqual(json.loads(response.read()).get("code"), code)
+                        if status == 403:
+                            self.assertEqual(response.getheader("Connection"), "close")
+                            actions.submit.assert_not_called()
+                    finally:
+                        connection.close()
+            actions.submit.assert_called_once_with("example", "start", [])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_missing_tmux_server_is_not_a_dashboard_error(self):
+        cases = [
+            (None, None),
+            ("no server running on /tmp/tmux-1001/default", None),
+            ("error connecting to /tmp/tmux-1000/default (No such file or directory)", None),
+            ("error connecting to /custom/tmux/socket (No such file or directory)", None),
+            ("error connecting to /tmp/tmux-1000/default (Permission denied)",
+             "error connecting to /tmp/tmux-1000/default (Permission denied)"),
+            ("tmux: command not found", "tmux: command not found"),
+        ]
+        for error, expected in cases:
+            with (self.subTest(error=error),
+                  patch("discovery.run_command", side_effect=[("", None), ("", error)]),
+                  patch("discovery.docker_discovery.read_bindings", return_value=([], None)),
+                  patch("discovery.windows_discovery.read_listeners", return_value=([], None))):
+                snapshot = Discovery(7777).snapshot(force=True)
+                self.assertIsNone(snapshot["listener_error"])
+                self.assertEqual(snapshot["tmux_error"], expected)
+                self.assertEqual(snapshot["services"], [])
+
     def test_smtp_greeting_prevents_http_and_tls_on_any_port(self):
         received = []
         with socket.socket() as listener:

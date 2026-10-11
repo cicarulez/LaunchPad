@@ -447,6 +447,11 @@ class Discovery:
                 "tmux", "list-panes", "-a", "-F",
                 "#{session_name}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_path}",
             ])
+            if tmux_error and re.fullmatch(
+                r"(?:no server running on .+|error connecting to .+ \(No such file or directory\))",
+                tmux_error,
+            ):
+                tmux_error = None
             listeners = parse_ss(ss_output)
             docker_bindings, docker_error = docker_discovery.read_bindings()
             services = build_services(listeners, parse_tmux(tmux_output), self.own_port,
@@ -465,7 +470,7 @@ class Discovery:
                 "services": services,
                 "updated_at": int(time.time()),
                 "listener_error": ss_error,
-                "tmux_error": tmux_error if tmux_error and tmux_error != "no server running on /tmp/tmux-1000/default" else None,
+                "tmux_error": tmux_error,
                 "docker_error": docker_error,
                 "windows_error": windows_error,
             }
@@ -564,6 +569,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(content)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if status >= 400 and self.command == "POST":
+            # Rejected requests may still have an unread body on the socket.
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(content)
 
@@ -573,9 +582,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         host = self.headers.get("Host", "")
         if (not allowed_local_host(host, self.server.server_address[1])
-                or self.headers.get("Origin") != f"http://{host}"
-                or self.headers.get("X-Launchpad-Token") != self.actions.token):
+                or self.headers.get("Origin") != f"http://{host}"):
             self.send_json(403, {"error": "Richiesta non autorizzata"})
+            return
+        if self.headers.get("X-Launchpad-Token") != self.actions.token:
+            self.send_json(403, {"error": "Sessione scaduta", "code": "token_expired"})
             return
         if self.path == "/api/refresh":
             state = self.feed.refresh()
