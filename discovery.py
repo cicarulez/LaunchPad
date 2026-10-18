@@ -31,7 +31,7 @@ from urllib.parse import urljoin, urlsplit
 ROOT = Path(__file__).resolve().parent
 SOURCE_FILE = ROOT / "discovery.py"
 BACKEND_FILES = (SOURCE_FILE, ROOT / "tmux_control.py", ROOT / "protocols.py", ROOT / "docker_discovery.py", ROOT / "windows_discovery.py")
-FRONTEND_FILES = tuple(ROOT / "static" / name for name in ("index.html", "app.js", "style.css", "favicon.svg"))
+FRONTEND_FILES = tuple(ROOT / "static" / name for name in ("index.html", "app.js", "style.css", "favicon.svg", "nginx.svg"))
 PID_PATTERN = re.compile(r"pid=(\d+)")
 REFRESH_SECONDS = 8
 PROBE_TIMEOUT = 0.35
@@ -121,7 +121,25 @@ def parse_ss(output: str) -> list[dict]:
             "port": port,
             "pids": sorted({int(pid) for pid in PID_PATTERN.findall(line)}),
         })
+        cgroup = re.search(r"(?:^|\s)cgroup:(\S+)", line)
+        if cgroup and cgroup[1].startswith("/system.slice/"):
+            unit = next((part for part in reversed(cgroup[1].split("/"))
+                         if re.fullmatch(r"[A-Za-z0-9_.@\\:\-]+\.service", part)), None)
+            if unit:
+                listeners[-1]["systemd_unit"] = unit
     return listeners
+
+
+def attach_systemd_processes(listeners: list[dict]) -> list[dict]:
+    """Resolve hidden system processes through their socket cgroup, without sudo."""
+    units = dict.fromkeys(item["systemd_unit"] for item in listeners
+                          if item.get("systemd_unit") and not item["pids"])
+    for unit in units:
+        output, error = run_command(["systemctl", "show", "--property=MainPID", "--value", "--", unit])
+        value = output.strip()
+        units[unit] = int(value) if not error and value.isdigit() and int(value) > 0 else None
+    return [{**item, "pids": [pid]} if not item["pids"] and
+            (pid := units.get(item.get("systemd_unit"))) else item for item in listeners]
 
 
 def parse_tmux(output: str) -> list[dict]:
@@ -393,6 +411,7 @@ def build_services(listeners: list[dict], panes: list[dict], own_port: int | Non
             "command": command,
             "pid": item["pids"][0] if item["pids"] else None,
             "started_at": (process or {}).get("started_at"),
+            "systemd_unit": item.get("systemd_unit"),
             "docker": item["docker"],
             "tmux": {key: pane[key] for key in ("session", "window", "pane")} if pane else None,
             "url": None,
@@ -442,7 +461,7 @@ class Discovery:
         with self.lock:
             if not force and time.monotonic() - self.cached_at < REFRESH_SECONDS:
                 return {**self.cached, "version": content_version()}
-            ss_output, ss_error = run_command(["ss", "-H", "-ltnp"])
+            ss_output, ss_error = run_command(["ss", "-H", "-ltnpe"])
             tmux_output, tmux_error = run_command([
                 "tmux", "list-panes", "-a", "-F",
                 "#{session_name}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_path}",
@@ -452,7 +471,7 @@ class Discovery:
                 tmux_error,
             ):
                 tmux_error = None
-            listeners = parse_ss(ss_output)
+            listeners = attach_systemd_processes(parse_ss(ss_output))
             docker_bindings, docker_error = docker_discovery.read_bindings()
             services = build_services(listeners, parse_tmux(tmux_output), self.own_port,
                                       docker_bindings=docker_bindings)
@@ -648,7 +667,8 @@ class Handler(BaseHTTPRequestHandler):
         files = {"/": ("index.html", "text/html; charset=utf-8"),
                  "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                  "/style.css": ("style.css", "text/css; charset=utf-8"),
-                 "/favicon.svg": ("favicon.svg", "image/svg+xml")}
+                 "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+                 "/nginx.svg": ("nginx.svg", "image/svg+xml")}
         if path == "/api/events":
             self.stream_events()
             return

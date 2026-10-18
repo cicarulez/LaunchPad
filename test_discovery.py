@@ -9,7 +9,7 @@ from threading import Event, Thread
 from unittest.mock import patch
 
 from discovery import (Discovery, Handler, LiveFeed, PageMetadataParser, allowed_local_host, build_services, browser_host, classify_http,
-                       content_version, fetch_metadata, find_pane, local_asset_url,
+                       attach_systemd_processes, content_version, fetch_metadata, find_pane, local_asset_url,
                        parse_ss, parse_tmux, probe_http, watch_source)
 
 
@@ -158,6 +158,46 @@ class DiscoveryTests(unittest.TestCase):
             {"address": "127.0.0.1", "port": 3000, "pids": [42]},
             {"address": "::", "port": 8000, "pids": [9]},
         ])
+
+    def test_hidden_system_process_is_resolved_once_for_multiple_sockets(self):
+        listeners = parse_ss(
+            'LISTEN 0 511 127.0.0.1:80 0.0.0.0:* ino:10 cgroup:/system.slice/nginx.service <->\n'
+            'LISTEN 0 511 127.0.0.1:8443 0.0.0.0:* ino:11 cgroup:/system.slice/nginx.service <->\n'
+        )
+        with patch("discovery.run_command", return_value=("42\n", None)) as command:
+            resolved = attach_systemd_processes(listeners)
+        command.assert_called_once_with([
+            "systemctl", "show", "--property=MainPID", "--value", "--", "nginx.service",
+        ])
+        self.assertEqual([item["pids"] for item in resolved], [[42], [42]])
+        with patch("discovery.proc_info", return_value={
+            "pid": 42, "ppid": 1, "command": "nginx", "cwd": None, "started_at": 123,
+        }):
+            services = build_services(resolved, [], probe=lambda *args: None,
+                                      fingerprint=lambda *args: {})
+        self.assertEqual([item["systemd_unit"] for item in services], ["nginx.service"] * 2)
+        self.assertEqual([item["pid"] for item in services], [42, 42])
+        self.assertEqual([item["started_at"] for item in services], [123, 123])
+
+    def test_systemd_lookup_failure_keeps_service_visible_without_inventing_pid(self):
+        listener = {"address": "127.0.0.1", "port": 80, "pids": [], "systemd_unit": "nginx.service"}
+        for output, error in [("0\n", None), ("", "systemctl unavailable"), ("invalid", None)]:
+            with self.subTest(output=output, error=error), patch(
+                "discovery.run_command", return_value=(output, error),
+            ):
+                self.assertEqual(attach_systemd_processes([listener]), [listener])
+
+    def test_user_cgroups_and_existing_pids_do_not_trigger_system_manager_lookups(self):
+        listeners = parse_ss(
+            'LISTEN 0 511 127.0.0.1:4227 0.0.0.0:* users:(("nginx",pid=7,fd=3)) '
+            'cgroup:/user.slice/user-1000.slice/user@1000.service/app.slice/fc-trading-web.service\n'
+            'LISTEN 0 511 127.0.0.1:80 0.0.0.0:* users:(("nginx",pid=42,fd=3)) '
+            'cgroup:/system.slice/nginx.service\n'
+        )
+        self.assertNotIn("systemd_unit", listeners[0])
+        with patch("discovery.run_command") as command:
+            self.assertEqual(attach_systemd_processes(listeners), listeners)
+        command.assert_not_called()
 
     def test_tmux_ancestor_and_duplicate_bindings(self):
         panes = parse_tmux("api\tserver\t%1\t10\t/home/me/project\n")

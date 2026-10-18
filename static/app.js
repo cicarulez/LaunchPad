@@ -63,28 +63,43 @@ function updateUptimes() {
   }
 }
 
+function serviceLogo(service) {
+  const nginx = /^nginx(?:@[^/]+)?\.service$/i.test(service.systemd_unit || '')
+    || /^nginx(?:\.exe)?$/i.test(service.command || '')
+    || /(?:^|\/)nginx(?=[:@]|$)/i.test(service.docker?.image || '');
+  return nginx ? '/nginx.svg' : null;
+}
+
 function row(service, index) {
   const root = element('article', `service-row ${service.kind}${service.protocol ? ' detected' : ''}`);
   root.append(element('span', 'row-index', String(index + 1).padStart(2, '0')));
 
   const identity = element('div', 'row-identity');
   const iconBox = element('div', 'row-icon');
-  if (service.favicon) {
+  const logo = serviceLogo(service);
+  const placeholder = service.kind === 'api' ? '{}' : service.protocol ? '▤' : service.kind === 'tcp' ? '•' : '✳';
+  if (service.favicon || logo) {
     const icon = element('img');
-    icon.src = service.favicon;
+    let usingLogo = !service.favicon;
+    icon.src = service.favicon || logo;
     icon.alt = '';
     icon.addEventListener('error', () => {
-      iconBox.replaceChildren(document.createTextNode(service.kind === 'api' ? '{}' : '✳'));
+      if (logo && !usingLogo) {
+        usingLogo = true;
+        icon.src = logo;
+      } else {
+        iconBox.replaceChildren(document.createTextNode(placeholder));
+      }
     });
     iconBox.append(icon);
   } else {
-    iconBox.textContent = service.kind === 'api' ? '{}' : service.protocol ? '▤' : service.kind === 'tcp' ? '•' : '✳';
+    iconBox.textContent = placeholder;
   }
   const rowText = element('div', 'row-text');
   const launcher = tmuxProjects.find(project => project.session === service.tmux?.session);
   rowText.append(element('span', 'row-kind',
     `${service.protocol ? 'SERVIZIO TCP' : labels[service.kind] || 'HTTP'}${service.docker ? ' · DOCKER' : ''}${service.source === 'windows' ? ' · WINDOWS' : ''}`));
-  rowText.append(element('h3', 'row-title', service.protocol || service.title || service.project || service.docker?.name || service.command || `Porta ${service.port}`));
+  rowText.append(element('h3', 'row-title', service.protocol || service.title || service.project || service.docker?.name || service.systemd_unit || service.command || `Porta ${service.port}`));
   const details = [];
   if (service.protocol) details.push({handshake: 'Protocollo verificato', process: 'Riconosciuto dal processo', image: 'Probabile dall’immagine Docker', port: 'Probabile dalla porta'}[service.protocol_evidence]);
   if (service.docker) details.push(service.docker.name);
@@ -93,6 +108,7 @@ function row(service, index) {
   if (service.title && service.project) details.push(service.project);
   if (service.tmux) details.push(`${service.tmux.session} / ${service.tmux.window}`);
   if (launcher) details.push(`${launcher.id}.sh`);
+  else if (service.systemd_unit) details.push(service.systemd_unit);
   else if (service.command) details.push(service.command);
   rowText.append(element('div', 'row-sub', details.join(' · ') || 'Processo non disponibile'));
   if (service.docker?.internal_port) {
@@ -116,9 +132,9 @@ function row(service, index) {
   root.append(identity);
 
   const context = element('div', 'row-context');
-  context.append(element('span', '', service.tmux ? 'SESSIONE TMUX' : service.docker ? 'CONTAINER DOCKER' : 'PROCESSO'));
+  context.append(element('span', '', service.tmux ? 'SESSIONE TMUX' : service.docker ? 'CONTAINER DOCKER' : service.systemd_unit ? 'SERVIZIO SYSTEMD' : 'PROCESSO'));
   context.append(element('strong', '', service.tmux
-    ? `${service.tmux.session} / ${service.tmux.window}` : service.docker?.name || service.command || 'Non disponibile'));
+    ? `${service.tmux.session} / ${service.tmux.window}` : service.docker?.name || service.systemd_unit || service.command || 'Non disponibile'));
   context.append(element('small', '', service.docker ? `${service.docker.image || ''} · ${service.host}` : service.host));
   if (launcher) {
     const link = element('a', 'tmux-link', `↗ ${launcher.id}.sh`);
@@ -168,12 +184,12 @@ function render() {
   const shown = services.filter(service => {
     const matchesType = activeFilter === 'all' || service.kind === activeFilter
       || (activeFilter === 'other' && ['http', 'tcp'].includes(service.kind));
-    return matchesType && [service.title, service.project, service.command, service.protocol, service.port,
+    return matchesType && [service.title, service.project, service.systemd_unit, service.command, service.protocol, service.port,
       service.docker?.name, service.docker?.image, service.docker?.compose_project,
       service.host, service.tmux?.session, service.tmux?.window]
       .some(value => String(value ?? '').toLocaleLowerCase().includes(query));
   });
-  const name = service => service.protocol || service.title || service.project || service.docker?.name || service.command || `Porta ${service.port}`;
+  const name = service => service.protocol || service.title || service.project || service.docker?.name || service.systemd_unit || service.command || `Porta ${service.port}`;
   const sort = sortSelect.value;
   shown.sort((a, b) => {
     if (sort === 'port-asc') return a.port - b.port;
