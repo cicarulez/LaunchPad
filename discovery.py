@@ -580,6 +580,18 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     feed: LiveFeed
     actions: tmux_control.ActionManager
+    proxy_origins: tuple[str, ...] = ()
+
+    def request_origin(self) -> str | None:
+        host = self.headers.get("Host", "")
+        if allowed_local_host(host, self.server.server_address[1]):
+            return f"http://{host}"
+        # Only explicitly configured HTTPS hosts from a loopback proxy are accepted.
+        # Forwarded headers never grant access or override the browser's Origin.
+        if ipaddress.ip_address(self.client_address[0]).is_loopback:
+            return next((origin for origin in self.proxy_origins
+                         if urlsplit(origin).netloc == host), None)
+        return None
 
     def send_json(self, status: int, value: dict):
         content = json.dumps(value).encode()
@@ -599,9 +611,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path not in ("/api/tmux/action", "/api/refresh"):
             self.send_error(404)
             return
-        host = self.headers.get("Host", "")
-        if (not allowed_local_host(host, self.server.server_address[1])
-                or self.headers.get("Origin") != f"http://{host}"):
+        origin = self.request_origin()
+        if origin is None or self.headers.get("Origin") != origin:
             self.send_json(403, {"error": "Richiesta non autorizzata"})
             return
         if self.headers.get("X-Launchpad-Token") != self.actions.token:
@@ -656,8 +667,8 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):
-        if not allowed_local_host(self.headers.get("Host", ""), self.server.server_address[1]):
-            self.send_error(403, "Host non locale")
+        if self.request_origin() is None:
+            self.send_error(403, "Host non autorizzato")
             return
         request_url = urlsplit(self.path)
         path = request_url.path
@@ -714,11 +725,18 @@ def main():
         local_bind = False
     if not local_bind:
         parser.error("Launchpad può ascoltare solo su un indirizzo locale")
+    proxy_origins = tuple(os.environ.get("LAUNCHPAD_PROXY_ORIGINS", "").split())
+    for origin in proxy_origins:
+        parsed = urlsplit(origin)
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+                or parsed.password or parsed.path or parsed.query or parsed.fragment):
+            parser.error("LAUNCHPAD_PROXY_ORIGINS richiede origini HTTPS senza percorso")
     actions = tmux_control.ActionManager(Path.home() / "tmux")
     discovery = Discovery(args.port)
     feed = LiveFeed(discovery, actions)
     actions.on_change = feed.request_scan
-    handler = type("DiscoveryHandler", (Handler,), {"feed": feed, "actions": actions})
+    handler = type("DiscoveryHandler", (Handler,), {
+        "feed": feed, "actions": actions, "proxy_origins": proxy_origins})
     source_changed = threading.Event()
     class Server(ThreadingHTTPServer):
         daemon_threads = True

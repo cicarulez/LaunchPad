@@ -67,7 +67,7 @@ function serviceLogo(service) {
   const nginx = /^nginx(?:@[^/]+)?\.service$/i.test(service.systemd_unit || '')
     || /^nginx(?:\.exe)?$/i.test(service.command || '')
     || /(?:^|\/)nginx(?=[:@]|$)/i.test(service.docker?.image || '');
-  return nginx ? '/nginx.svg' : null;
+  return nginx ? './nginx.svg' : null;
 }
 
 function row(service, index) {
@@ -400,7 +400,7 @@ async function authorizedPost(path, options = {}) {
   let response = await send();
   let data = await response.json();
   if (response.status === 403 && data.code === 'token_expired') {
-    const session = await fetch('/api/tmux', {cache: 'no-store'});
+    const session = await fetch('./api/tmux', {cache: 'no-store'});
     const current = await session.json();
     if (!session.ok) throw new Error(current.error || `HTTP ${session.status}`);
     tmuxToken = current.token;
@@ -423,7 +423,7 @@ async function runTmuxAction(project, action) {
   showToast(toastKey, `${project.id} · ${tmuxActionMessage(action, 'running')}`, 'running');
   renderTmux();
   try {
-    const data = await authorizedPost('/api/tmux/action', {
+    const data = await authorizedPost('./api/tmux/action', {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({project: project.id, action}),
     });
@@ -443,7 +443,7 @@ async function requestRefresh() {
   refreshing = true;
   refreshButton.disabled = true;
   try {
-    const data = await authorizedPost('/api/refresh');
+    const data = await authorizedPost('./api/refresh');
     showUpdated(data.updated_at);
   } catch (error) {
     notice.hidden = false;
@@ -499,7 +499,7 @@ document.querySelector('.signal-field').addEventListener('click', event => {
 sortSelect.addEventListener('change', render);
 refreshButton.disabled = true;
 refreshButton.addEventListener('click', requestRefresh);
-const events = new EventSource('/api/events');
+const events = new EventSource('./api/events');
 events.addEventListener('snapshot', event => applySnapshot(JSON.parse(event.data)));
 events.addEventListener('error', () => {
   notice.hidden = false;

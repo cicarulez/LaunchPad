@@ -27,11 +27,36 @@ La configurazione è in `systemd/launchpad.service`. Per reinstallarla dopo uno 
 
 Un worker del servizio scansiona porte, protocolli e sessioni tmux ogni 8 secondi, anche senza browser aperto. Il frontend riceve lo stato iniziale e i soli cambiamenti tramite Server-Sent Events (`/api/events`); non interroga le API a intervalli. **Aggiorna** chiede al worker una scansione immediata. Le modifiche ai file Python del backend riavviano automaticamente il processo; le modifiche a HTML, JavaScript e CSS ricaricano la pagina aperta. Puoi usare `python3 discovery.py --port 9000` per cambiare porta nell'avvio manuale.
 
-Un indirizzo dedicato senza porta richiede un resolver e un proxy locali. Il proxy deve inoltrare le richieste con un `Host` locale accettato da Launchpad; l'interfaccia è pensata per l'accesso diretto a `localhost:7777`.
+### BumbleRig LAN
+
+La dashboard è disponibile anche su **https://bumblerig.home.arpa/launchpad/**,
+dalla scheda del portale e tramite Tailscale su
+**https://bumblerig.tail99c641.ts.net/launchpad/**. Per installare o aggiornare
+l'integrazione con il gateway già presente:
+
+```bash
+bash scripts/deploy-lan.sh
+```
+
+Il deploy mantiene il servizio utente e la porta loopback 7777, installa lo
+snippet `deploy/launchpad.conf` in `/etc/nginx/bumblerig-apps/` e il drop-in
+`systemd/bumblerig.conf` nel servizio utente. Salva la configurazione precedente
+in `/var/backups/bumblerig/launchpad-<data>/`, verifica file e API in HTTPS e
+abilita la scheda in `/etc/bumblerig/apps.json` soltanto dopo il collaudo.
+In caso di errore ripristina la configurazione precedente. La grafica della
+scheda è nel repository `bumblerig-lan` e si aggiorna con il deploy del portale.
+
+Il proxy conserva `Host` e `Origin`, rimuove il prefisso `/launchpad/` e inoltra
+gli eventi SSE senza buffering. I file e le API del frontend usano percorsi
+relativi, compatibili sia con il proxy sia con l'accesso locale diretto.
+`LAUNCHPAD_PROXY_ORIGINS` elenca le sole origini HTTPS autorizzate, separate
+da spazi e senza percorso. Per impostazione predefinita non è configurata:
+l'accesso tramite proxy è abilitato dal drop-in BumbleRig. Le richieste devono
+provenire da loopback; i comandi richiedono l'origine esatta dell'host e il token.
 
 Launchpad va eseguito sullo stesso host e con lo stesso utente dei server e delle sessioni tmux. Il servizio web ascolta solo su `127.0.0.1` per impostazione predefinita. Per ogni porta TCP in ascolto invia una breve richiesta `HEAD /` sull'interfaccia locale. Se la porta parla HTTP, legge la risposta della pagina principale: una pagina HTML valida è classificata come **Web app**, una risposta JSON o un endpoint senza pagina come **API**. Le pagine di documentazione Swagger, ReDoc e OpenAPI vengono classificate come API. Se la risposta non è leggibile, mostra **HTTP**; le altre porte sono **TCP**. La classificazione è indicativa e si basa sulla pagina principale, senza esplorare tutti i percorsi del servizio. Le web app compaiono per prime per impostazione predefinita; puoi filtrare per tipo, cercare e cambiare ordinamento.
 
-L'interfaccia accetta solo connessioni e intestazioni `Host` locali. I comandi tmux richiedono un token della sessione web e un'origine coerente con l'host. Non esporre il dashboard su Internet: mostra metadati dei processi locali e può eseguire gli script presenti in `~/tmux`.
+L'interfaccia accetta solo connessioni locali e intestazioni `Host` locali o esplicitamente autorizzate per il proxy. I comandi tmux richiedono un token della sessione web e un'origine coerente con l'host. Non esporre il dashboard su Internet: mostra metadati dei processi locali e può eseguire gli script presenti in `~/tmux`.
 
 Per le pagine HTML mostra anche titolo e favicon, quando disponibili. Per i servizi Nginx riconosciuti dal processo, dall’unità systemd o dall’immagine Docker, usa un logo locale quando la favicon manca o non si carica. Nei link, `127.0.0.1` viene presentato come `localhost`. Per i servizi di sistema, se `ss` espone il cgroup del socket, Launchpad legge il nome dell'unità e il PID principale tramite `systemctl show`: può quindi riconoscere servizi come Nginx anche quando il PID del socket è nascosto all'utente. La lettura non richiede privilegi aggiuntivi. I processi di altri utenti senza un'unità di sistema riconoscibile possono comparire senza nome o sessione, secondo i permessi del sistema.
 
@@ -43,7 +68,7 @@ In WSL, Launchpad rileva automaticamente anche le porte TCP Windows tramite `pow
 
 ## Tray Windows con backend WSL
 
-Il tray apre la dashboard nel browser Windows su `http://127.0.0.1:7777`, con doppio clic o con **Apri Launchpad** nel menu del tasto destro. Usa IPv4 esplicitamente, come il backend, per evitare timeout quando Windows risolve `localhost` su IPv6. L'icona arancione indica che la dashboard è raggiungibile; quella grigia indica che è offline. La verifica usa `/api/health` ogni 8 secondi, senza richiedere una scansione dei servizi.
+Il tray apre la dashboard nel browser Windows su `https://bumblerig.home.arpa/launchpad/`, con doppio clic o con **Apri Launchpad** nel menu del tasto destro. L'icona arancione indica che la dashboard HTTPS è raggiungibile; quella grigia indica che è offline. La verifica usa `api/health` sotto lo stesso indirizzo ogni 8 secondi, senza richiedere una scansione dei servizi. La CA BumbleRig deve essere attendibile anche in Windows.
 
 Richiede Windows PowerShell 5.1 e il servizio utente `launchpad.service` già installato nella distribuzione WSL come descritto sopra. Non richiede pacchetti aggiuntivi o privilegi amministrativi. Dalla root del repository in WSL:
 
@@ -58,7 +83,7 @@ L'installer copia l'utility in `%LOCALAPPDATA%\Launchpad`, crea un collegamento 
 
 Il menu comprende **Avvia servizio**, **Riavvia servizio**, **Avvia il tray al login** e **Esci dal tray**. Uscire chiude solo l'icona: il backend resta attivo. Un errore di avvio o riavvio viene mostrato con una notifica. Una seconda apertura non crea un'altra icona. L'avvio al login dell'icona Windows e l'abilitazione del servizio systemd sono indipendenti.
 
-Per aggiornare il tray, chiudilo dal menu e riesegui l'installer. `-NoStart` installa senza avviarlo. Se il backend usa una porta diversa, aggiungi `-Port 9000`; l'opzione configura l'URL del tray, mentre la porta del backend va configurata separatamente nell'unità systemd.
+Per aggiornare il tray, chiudilo dal menu e riesegui l'installer. `-NoStart` installa senza avviarlo. `-DashboardUrl` cambia l'indirizzo di apertura e di controllo stato; per l'accesso diretto locale usa `-DashboardUrl http://127.0.0.1:7777/`. `-Port` conserva la porta locale nella configurazione per compatibilità; la porta del backend va configurata separatamente nell'unità systemd e nel proxy. Le installazioni precedenti conservano l'URL locale finché non si riesegue l'installer.
 
 Per rimuovere i collegamenti e chiudere il tray, lasciando attivo il servizio:
 

@@ -2,6 +2,7 @@ param(
     [ValidatePattern('^[a-zA-Z0-9._ -]+$')][string]$Distribution = 'Ubuntu',
     [ValidatePattern('^[a-zA-Z0-9._-]+$')][string]$WslUser,
     [ValidateRange(1, 65535)][int]$Port = 7777,
+    [string]$DashboardUrl = 'https://bumblerig.home.arpa/launchpad/',
     [switch]$Uninstall,
     [switch]$NoStart
 )
@@ -21,12 +22,16 @@ if ($Uninstall) {
 }
 
 if (-not $WslUser) { throw 'Specifica -WslUser con il nome utente Linux che esegue Launchpad.' }
+$dashboardUri = $null
+if (-not [Uri]::TryCreate($DashboardUrl, [UriKind]::Absolute, [ref]$dashboardUri) -or
+    $dashboardUri.Scheme -notin @('http', 'https') -or $dashboardUri.UserInfo -or
+    $dashboardUri.Query -or $dashboardUri.Fragment) { throw 'DashboardUrl deve essere un URL HTTP/HTTPS senza credenziali, query o frammento.' }
 if (Test-Path (Join-Path $installDir 'exit.request')) {
     Remove-Item (Join-Path $installDir 'exit.request') -Force
 }
 New-Item $installDir -ItemType Directory -Force | Out-Null
 Copy-Item (Join-Path $PSScriptRoot 'launchpad-tray.ps1') $installDir -Force
-@{ Distribution = $Distribution; WslUser = $WslUser; Port = $Port } |
+@{ Distribution = $Distribution; WslUser = $WslUser; Port = $Port; DashboardUrl = $DashboardUrl.TrimEnd('/') + '/' } |
     ConvertTo-Json | Set-Content (Join-Path $installDir 'config.json') -Encoding UTF8
 
 # wscript keeps both login and manual launches free of console windows.
@@ -46,4 +51,4 @@ foreach ($linkPath in @($startupLink, $menuLink)) {
     $shortcut.Save()
 }
 if (-not $NoStart) { Start-Process (Join-Path $env:SystemRoot 'System32\wscript.exe') -ArgumentList ('"{0}"' -f $launcher) }
-Write-Output "Tray installato in $installDir per $Distribution / $WslUser, porta $Port."
+Write-Output "Tray installato in $installDir per $Distribution / $WslUser, dashboard $DashboardUrl."

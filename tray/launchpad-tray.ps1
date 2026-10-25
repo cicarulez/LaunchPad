@@ -9,8 +9,13 @@ $config = Get-Content (Join-Path $PSScriptRoot 'config.json') -Raw | ConvertFrom
 if ($config.Distribution -notmatch '^[a-zA-Z0-9._ -]+$' -or
     $config.WslUser -notmatch '^[a-zA-Z0-9._-]+$' -or
     [int]$config.Port -lt 1 -or [int]$config.Port -gt 65535) { throw 'Configurazione tray non valida.' }
-# Use IPv4 explicitly, matching the backend bind and WSL localhost forwarding.
-$url = 'http://127.0.0.1:{0}' -f $config.Port
+# Older installations keep their local URL until the installer is run again.
+$url = if ($config.DashboardUrl) { [string]$config.DashboardUrl } else { 'http://127.0.0.1:{0}/' -f $config.Port }
+$dashboardUri = $null
+if (-not [Uri]::TryCreate($url, [UriKind]::Absolute, [ref]$dashboardUri) -or
+    $dashboardUri.Scheme -notin @('http', 'https') -or $dashboardUri.UserInfo -or
+    $dashboardUri.Query -or $dashboardUri.Fragment) { throw 'URL dashboard non valido.' }
+$url = $url.TrimEnd('/') + '/'
 $startupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'Launchpad.lnk'
 $exitRequest = Join-Path $PSScriptRoot 'exit.request'
 
@@ -158,7 +163,7 @@ $timer.Add_Tick({
         $script:nextCheck = [DateTime]::UtcNow.AddSeconds(8)
     }
     if (-not $script:healthTask -and [DateTime]::UtcNow -ge $script:nextCheck) {
-        $script:healthTask = $client.GetStringAsync("$url/api/health")
+        $script:healthTask = $client.GetStringAsync("${url}api/health")
     }
 })
 
@@ -166,7 +171,7 @@ $created = $false
 $mutex = New-Object System.Threading.Mutex($true, 'Local\Launchpad.Tray', [ref]$created)
 try {
     if ($Check) {
-        Write-Output 'Configurazione, icone e menu tray: OK'
+        Write-Output "Configurazione, icone e menu tray: OK ($url)"
         return
     }
     if (-not $created) { return }

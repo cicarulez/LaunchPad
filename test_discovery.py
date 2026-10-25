@@ -14,6 +14,66 @@ from discovery import (Discovery, Handler, LiveFeed, PageMetadataParser, allowed
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_proxy_authorization_preserves_host_origin_and_token_checks(self):
+        from unittest.mock import MagicMock
+        actions = MagicMock(token="current-token")
+        actions.submit.return_value = {"id": "job-1"}
+        feed = MagicMock()
+        feed.read.return_value = {"projects": []}
+        handler = type("ProxyHandler", (Handler,), {
+            "actions": actions, "feed": feed,
+            "proxy_origins": ("https://bumblerig.home.arpa", "https://bumblerig.tail99c641.ts.net"),
+        })
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        cases = [
+            ("bumblerig.home.arpa", "https://bumblerig.home.arpa", "current-token", 202),
+            ("bumblerig.tail99c641.ts.net", "https://bumblerig.tail99c641.ts.net", "current-token", 202),
+            ("bumblerig.home.arpa", "http://bumblerig.home.arpa", "current-token", 403),
+            ("bumblerig.home.arpa", "https://evil.example", "current-token", 403),
+            ("bumblerig.home.arpa", "https://bumblerig.tail99c641.ts.net", "current-token", 403),
+            ("evil.example", "https://evil.example", "current-token", 403),
+            ("bumblerig.home.arpa", "https://bumblerig.home.arpa", "old-token", 403),
+            ("bumblerig.home.arpa", "", "current-token", 403),
+        ]
+        try:
+            for host, origin, token, status in cases:
+                with self.subTest(host=host, origin=origin, token=token):
+                    connection = http.client.HTTPConnection(*server.server_address, timeout=2)
+                    try:
+                        actions.submit.reset_mock()
+                        connection.request("POST", "/api/tmux/action",
+                                           json.dumps({"project": "example", "action": "start"}), {
+                                               "Host": host, "Origin": origin,
+                                               "X-Launchpad-Token": token, "Content-Type": "application/json",
+                                               "X-Forwarded-Host": "bumblerig.home.arpa",
+                                               "X-Forwarded-Proto": "https",
+                                           })
+                        response = connection.getresponse()
+                        self.assertEqual(response.status, status)
+                        response.read()
+                        if status == 403:
+                            actions.submit.assert_not_called()
+                        else:
+                            actions.submit.assert_called_once_with("example", "start", [])
+                    finally:
+                        connection.close()
+            # Configuring a proxy remains opt-in, including for read-only APIs.
+            handler.proxy_origins = ()
+            connection = http.client.HTTPConnection(*server.server_address, timeout=2)
+            try:
+                connection.request("GET", "/api/health", headers={"Host": "bumblerig.home.arpa"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 403)
+                response.read()
+            finally:
+                connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_post_authorization_after_backend_restart(self):
         from unittest.mock import MagicMock
         actions = MagicMock(token="current-token")
