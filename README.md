@@ -70,7 +70,7 @@ In WSL, Launchpad rileva automaticamente anche le porte TCP Windows tramite `pow
 
 Il tray apre la dashboard nel browser Windows su `https://bumblerig.home.arpa/launchpad/`, con doppio clic o con **Apri Launchpad** nel menu del tasto destro. L'icona arancione indica che la dashboard HTTPS è raggiungibile; quella grigia indica che è offline. La verifica usa `api/health` sotto lo stesso indirizzo ogni 8 secondi, senza richiedere una scansione dei servizi. La CA BumbleRig deve essere attendibile anche in Windows.
 
-Richiede Windows PowerShell 5.1 e il servizio utente `launchpad.service` già installato nella distribuzione WSL come descritto sopra. Non richiede pacchetti aggiuntivi o privilegi amministrativi. Dalla root del repository in WSL:
+Richiede Windows PowerShell 5.1, `curl.exe` incluso nelle versioni aggiornate di Windows e il servizio utente `launchpad.service` già installato nella distribuzione WSL come descritto sopra. Non richiede pacchetti aggiuntivi o privilegi amministrativi. Il controllo usa curl per passare rapidamente a IPv4 se gli indirizzi IPv6 del dominio non rispondono, con un timeout totale di 4 secondi. Mantiene la verifica del certificato HTTPS e del nome del server; la verifica di revoca è best effort perché la CA privata non pubblica un endpoint di revoca. Dalla root del repository in WSL:
 
 ```bash
 /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe \
@@ -93,7 +93,7 @@ Per rimuovere i collegamenti e chiudere il tray, lasciando attivo il servizio:
   -File "$(wslpath -w "$PWD/tray/install.ps1")" -Uninstall
 ```
 
-Dopo la chiusura puoi eliminare `%LOCALAPPDATA%\Launchpad`. Per verificare configurazione, creazione delle icone e menu senza avviare il servizio, esegui da PowerShell Windows:
+Dopo la chiusura puoi eliminare `%LOCALAPPDATA%\Launchpad`. Per verificare configurazione, creazione delle icone, menu e raggiungibilità dell'API della dashboard senza avviare il servizio, esegui da PowerShell Windows:
 
 ```powershell
 & "$env:LOCALAPPDATA\Launchpad\launchpad-tray.ps1" -Check

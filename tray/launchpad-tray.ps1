@@ -3,7 +3,6 @@ param([switch]$Check)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-Add-Type -AssemblyName System.Net.Http
 
 $config = Get-Content (Join-Path $PSScriptRoot 'config.json') -Raw | ConvertFrom-Json
 if ($config.Distribution -notmatch '^[a-zA-Z0-9._ -]+$' -or
@@ -68,14 +67,30 @@ $notify.ContextMenuStrip = $menu
 $notify.Icon = $offlineIcon
 $notify.Text = 'Launchpad - verifica del servizio'
 
-$handler = New-Object System.Net.Http.HttpClientHandler
-$handler.UseProxy = $false
-$handler.AllowAutoRedirect = $false
-$client = New-Object System.Net.Http.HttpClient $handler
-$client.Timeout = [TimeSpan]::FromSeconds(2)
-$script:healthTask = $null
+# Windows curl races IPv6 and IPv4; .NET Framework can wait on every IPv6
+# address before trying IPv4, exceeding the health timeout on this LAN.
+$curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+if (-not (Test-Path $curl)) { throw 'Il controllo stato richiede curl.exe di Windows.' }
+$script:healthProcess = $null
 $script:serviceProcess = $null
 $script:nextCheck = [DateTime]::MinValue
+
+function Start-HealthCheck {
+    $info = New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName = $curl
+    # Keep certificate/hostname validation. Our private CA has no revocation
+    # endpoint; best-effort tolerates that while still rejecting known revocations.
+    # AbsoluteUri escapes URL characters before passing the URL to curl.
+    $healthUrl = ([Uri]"${url}api/health").AbsoluteUri
+    $info.Arguments = '--silent --show-error --fail --noproxy "*" --ssl-revoke-best-effort --connect-timeout 2 --max-time 4 --url "{0}"' -f $healthUrl
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardError = $true
+    $info.RedirectStandardOutput = $true
+    $script:healthProcess = [System.Diagnostics.Process]::Start($info)
+    $script:healthOutput = $script:healthProcess.StandardOutput.ReadToEndAsync()
+    $script:healthError = $script:healthProcess.StandardError.ReadToEndAsync()
+}
 
 function Show-TrayError([string]$message) {
     $notify.ShowBalloonTip(5000, 'Launchpad', $message, [System.Windows.Forms.ToolTipIcon]::Error)
@@ -149,21 +164,30 @@ $timer.Add_Tick({
             Show-TrayError 'WSL non ha risposto entro 30 secondi.'
         }
     }
-    if ($script:healthTask -and $script:healthTask.IsCompleted) {
+    if ($script:healthProcess -and $script:healthProcess.HasExited -and
+        $script:healthOutput.IsCompleted -and $script:healthError.IsCompleted) {
         $online = $false
         try {
-            $body = $script:healthTask.GetAwaiter().GetResult() | ConvertFrom-Json
-            $online = $body.application -eq 'launchpad' -and $body.status -eq 'ok'
+            $body = $script:healthOutput.GetAwaiter().GetResult() | ConvertFrom-Json
+            $online = $script:healthProcess.ExitCode -eq 0 -and
+                $body.application -eq 'launchpad' -and $body.status -eq 'ok'
         } catch { $online = $false }
-        $script:healthTask = $null
+        $script:healthProcess.Dispose()
+        $script:healthProcess = $null
         $notify.Icon = if ($online) { $onlineIcon } else { $offlineIcon }
         $state = if ($online) { 'disponibile' } else { 'offline' }
         $notify.Text = "Launchpad - $state"
         if (-not $script:serviceProcess) { $statusItem.Text = "Dashboard $state" }
         $script:nextCheck = [DateTime]::UtcNow.AddSeconds(8)
     }
-    if (-not $script:healthTask -and [DateTime]::UtcNow -ge $script:nextCheck) {
-        $script:healthTask = $client.GetStringAsync("${url}api/health")
+    if (-not $script:healthProcess -and [DateTime]::UtcNow -ge $script:nextCheck) {
+        try { Start-HealthCheck }
+        catch {
+            $notify.Icon = $offlineIcon
+            $notify.Text = 'Launchpad - offline'
+            if (-not $script:serviceProcess) { $statusItem.Text = 'Dashboard offline' }
+            $script:nextCheck = [DateTime]::UtcNow.AddSeconds(8)
+        }
     }
 })
 
@@ -171,7 +195,17 @@ $created = $false
 $mutex = New-Object System.Threading.Mutex($true, 'Local\Launchpad.Tray', [ref]$created)
 try {
     if ($Check) {
-        Write-Output "Configurazione, icone e menu tray: OK ($url)"
+        Start-HealthCheck
+        $script:healthProcess.WaitForExit()
+        $detail = $script:healthError.GetAwaiter().GetResult()
+        if ($script:healthProcess.ExitCode -ne 0) {
+            throw "Dashboard non raggiungibile ($url). $detail"
+        }
+        $body = $script:healthOutput.GetAwaiter().GetResult() | ConvertFrom-Json
+        if ($body.application -ne 'launchpad' -or $body.status -ne 'ok') {
+            throw "Risposta API dashboard non valida ($url)."
+        }
+        Write-Output "Configurazione, icone, menu tray e API dashboard: OK ($url)"
         return
     }
     if (-not $created) { return }
@@ -183,7 +217,10 @@ try {
     $timer.Stop(); $timer.Dispose()
     $notify.Visible = $false
     $notify.Dispose(); $menu.Dispose()
-    $client.Dispose(); $handler.Dispose()
+    if ($script:healthProcess) {
+        if (-not $script:healthProcess.HasExited) { $script:healthProcess.Kill() }
+        $script:healthProcess.Dispose()
+    }
     $onlineIcon.Dispose(); $offlineIcon.Dispose()
     if ($script:serviceProcess) { $script:serviceProcess.Dispose() }
     if ($created) { $mutex.ReleaseMutex() }
