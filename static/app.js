@@ -12,6 +12,7 @@ const mapWeb = document.querySelector('#map-web');
 const mapApi = document.querySelector('#map-api');
 const mapOther = document.querySelector('#map-other');
 const mapCore = document.querySelector('.signal-core');
+const primaryServices = document.querySelector('#primary-services');
 const tmuxList = document.querySelector('#tmux-projects');
 const toastList = document.querySelector('#toasts');
 const tmuxOther = document.querySelector('#tmux-other');
@@ -70,14 +71,11 @@ function serviceLogo(service) {
   return nginx ? './nginx.svg' : null;
 }
 
-function row(service, index) {
-  const root = element('article', `service-row ${service.kind}${service.protocol ? ' detected' : ''}`);
-  root.append(element('span', 'row-index', String(index + 1).padStart(2, '0')));
-
-  const identity = element('div', 'row-identity');
-  const iconBox = element('div', 'row-icon');
+function serviceIcon(service, className = 'row-icon', fallback) {
+  const iconBox = element('div', className);
+  iconBox.setAttribute('aria-hidden', 'true');
   const logo = serviceLogo(service);
-  const placeholder = service.kind === 'api' ? '{}' : service.protocol ? '▤' : service.kind === 'tcp' ? '•' : '✳';
+  const placeholder = fallback ?? (service.kind === 'api' ? '{}' : service.protocol ? '▤' : service.kind === 'tcp' ? '•' : '✳');
   if (service.favicon || logo) {
     const icon = element('img');
     let usingLogo = !service.favicon;
@@ -95,6 +93,41 @@ function row(service, index) {
   } else {
     iconBox.textContent = placeholder;
   }
+  return iconBox;
+}
+
+function renderPrimaryServices() {
+  const primary = services.filter(service => service.port === 80);
+  primaryServices.hidden = primary.length === 0;
+  primaryServices.replaceChildren(...primary.map(service => {
+    const card = element(service.url ? 'a' : 'article', 'primary-service');
+    const title = service.title || service.project || service.docker?.name || service.systemd_unit || service.command || 'Servizio locale';
+    if (service.url) {
+      card.href = service.url;
+      card.target = '_blank';
+      card.rel = 'noopener noreferrer';
+      card.setAttribute('aria-label', `Apri servizio principale: ${title}, porta 80`);
+    }
+    const text = element('div', 'primary-service-text');
+    text.append(element('span', 'primary-service-label', 'SERVIZIO PRINCIPALE · PORTA 80'),
+      element('strong', 'primary-service-title', title),
+      element('span', 'primary-service-address', service.url || `${service.host}:80 · In ascolto`));
+    card.append(serviceIcon(service, 'primary-service-icon', '⌂'), text);
+    if (service.url) {
+      const arrow = element('span', 'primary-service-action', '↗');
+      arrow.setAttribute('aria-hidden', 'true');
+      card.append(arrow);
+    }
+    return card;
+  }));
+}
+
+function row(service, index) {
+  const root = element('article', `service-row ${service.kind}${service.protocol ? ' detected' : ''}`);
+  root.append(element('span', 'row-index', String(index + 1).padStart(2, '0')));
+
+  const identity = element('div', 'row-identity');
+  const iconBox = serviceIcon(service);
   const rowText = element('div', 'row-text');
   const launcher = tmuxProjects.find(project => project.session === service.tmux?.session);
   rowText.append(element('span', 'row-kind',
@@ -245,6 +278,7 @@ function applySnapshot(data) {
   syncTmuxToasts();
   renderTmux();
   render();
+  renderPrimaryServices();
   updateUptimes();
   refreshButton.disabled = refreshing;
 }
