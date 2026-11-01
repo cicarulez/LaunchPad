@@ -31,7 +31,7 @@ from urllib.parse import urljoin, urlsplit
 ROOT = Path(__file__).resolve().parent
 SOURCE_FILE = ROOT / "discovery.py"
 BACKEND_FILES = (SOURCE_FILE, ROOT / "tmux_control.py", ROOT / "protocols.py", ROOT / "docker_discovery.py", ROOT / "windows_discovery.py")
-FRONTEND_FILES = tuple(ROOT / "static" / name for name in ("index.html", "app.js", "style.css", "favicon.svg", "nginx.svg"))
+FRONTEND_FILES = tuple(ROOT / "static" / name for name in ("index.html", "app.js", "theme.js", "style.css", "favicon.svg", "nginx.svg"))
 PID_PATTERN = re.compile(r"pid=(\d+)")
 REFRESH_SECONDS = 8
 PROBE_TIMEOUT = 0.35
@@ -677,6 +677,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         files = {"/": ("index.html", "text/html; charset=utf-8"),
                  "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+                 "/theme.js": ("theme.js", "text/javascript; charset=utf-8"),
                  "/style.css": ("style.css", "text/css; charset=utf-8"),
                  "/favicon.svg": ("favicon.svg", "image/svg+xml"),
                  "/nginx.svg": ("nginx.svg", "image/svg+xml")}

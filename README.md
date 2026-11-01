@@ -2,6 +2,8 @@
 
 Dashboard locale per scoprire servizi e porte, riconoscere processi e container Docker e gestire le sessioni tmux.
 
+Il selettore **Tema** nell’intestazione permette di scegliere **Sistema**, **Chiaro** o **Scuro**. Per impostazione predefinita segue il sistema operativo; una scelta esplicita viene ricordata nel browser e condivisa tra le schede aperte.
+
 ## Avvio
 
 Richiede Linux, Python 3.10+ e il comando `ss` (pacchetto `iproute2`). `tmux` è facoltativo.

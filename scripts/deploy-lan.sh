@@ -54,7 +54,7 @@ curl --silent --show-error --fail --retry 8 --retry-connrefused --retry-delay 1 
     http://127.0.0.1:7777/api/health >/dev/null
 nginx -t
 systemctl reload nginx
-for path in /launchpad/ /launchpad/app.js /launchpad/style.css /launchpad/favicon.svg /launchpad/api/health /launchpad/api/tmux; do
+for path in /launchpad/ /launchpad/app.js /launchpad/theme.js /launchpad/style.css /launchpad/favicon.svg /launchpad/api/health /launchpad/api/tmux; do
     echo "Collaudo HTTPS: $path"
     curl --silent --show-error --fail --retry 4 --retry-all-errors --retry-delay 1 --max-time 5 \
         --cacert /etc/bumblerig/pki/root-ca.crt \

@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f4f0e8">
   <title>Launchpad · Atlante locale</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <script src="./theme.js"></script>
   <link rel="stylesheet" href="./style.css">
   <script src="./app.js" defer></script>
 </head>
@@ -22,7 +23,10 @@
         <span>launchpad<span class="brand-period">.</span></span>
       </div>
       <div class="masthead-meta"><span>LOCAL SERVICE ATLAS</span><span class="masthead-slash">/</span><span>EDIZIONE 01</span></div>
-      <div class="status-pill"><span class="status-light"></span> IN ASCOLTO <span id="updated">—</span></div>
+      <div class="masthead-actions">
+        <label class="theme-control"><span>Tema</span><select id="theme" aria-label="Tema dell’interfaccia"><option value="system">Sistema</option><option value="light">Chiaro</option><option value="dark">Scuro</option></select></label>
+        <div class="status-pill"><span class="status-light"></span> IN ASCOLTO <span id="updated">—</span></div>
+      </div>
     </header>
 
     <main>
